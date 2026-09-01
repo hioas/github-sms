@@ -1,0 +1,1063 @@
+# =====================================================================================================================
+# sms.http — hioas-sms 19 个渠道的真实厂商接口联调用例（IntelliJ IDEA HTTP Client 格式）
+# =====================================================================================================================
+# 用法：
+#   1. 在 http-client.private.env.json 填入真实凭证（该文件不要提交 VCS）；
+#      http-client.env.json 为公共变量（地址/模板/测试号码），可调整。
+#   2. IDE 右上角选择 dev 环境，点击请求左侧 ▶ 逐条发送。
+#   3. 需要动态签名/时间戳的渠道使用 pre-request 脚本（< {% ... %} 块），
+#      需要支持 HTTP Client Pre-Request Handlers 的较新 IDE（IntelliJ IDEA 2024.2+）。
+#      脚本内通过官方 JS API request.environment.get("name") 读取环境变量（凭证/模板等），
+#      计算结果经 request.variables.set(...) 注入 {{...}} 占位符供请求引用。
+#   4. 官方 crypto API 仅文档化 sha256 系列，因此：
+#        - sha256 / hmac-sha256（腾讯云）使用官方 crypto API；
+#        - md5 / sha1 / hmac-sha1 使用内联纯 JS 实现（已与标准密码库逐字节对照验证）。
+#   5. 每个请求的 method/URL/头/体与 src/main/resources/channels/<channel>.api.json 描述文件一一对应；
+#      响应成功判定见各描述文件 response.successWhen。
+#   6. 签名类请求中的签名/时间戳均由脚本按当前时间动态计算，直接发送即可，无需手工改签名。
+# =====================================================================================================================
+
+
+# =====================================================================================================================
+# 1. 创蓝（chuanglan）— 明文账号密码、JSON body，无签名
+#    描述文件: channels/chuanglan.api.json | 成功判定: $.code == '0'
+# =====================================================================================================================
+
+### 创蓝 - 单发（params = 手机号,内容）
+POST {{chuanglan_base_url}}{{chuanglan_msg_url}}
+Content-Type: application/json
+
+{
+  "account": "{{chuanglan_account}}",
+  "password": "{{chuanglan_password}}",
+  "msg": "{{chuanglan_msg}}",
+  "params": "{{phone}},{{code}}"
+}
+
+### 创蓝 - 群发（params = 手机号,内容;手机号,内容）
+POST {{chuanglan_base_url}}{{chuanglan_msg_url}}
+Content-Type: application/json
+
+{
+  "account": "{{chuanglan_account}}",
+  "password": "{{chuanglan_password}}",
+  "msg": "{{chuanglan_msg}}",
+  "params": "{{phone}},{{code}};{{phone2}},{{code}}"
+}
+
+
+# =====================================================================================================================
+# 2. 助通（zhutong）— password = md5(md5(密码) + tKey)，JSON body
+#    描述文件: channels/zhutong.api.json | 成功判定: $.code <= 200
+# =====================================================================================================================
+
+### 助通 - 模板短信（v2/sendSmsTp，逐号码 records）
+< {%
+function utf8(s){return encodeURIComponent(s).replace(/%([0-9A-F]{2})/g,function(m,p){return String.fromCharCode(parseInt(p,16))})}
+function add32(a,b){return(a+b)&0xFFFFFFFF}
+function md5(s){function cmn(q,a,b,x,ss,t){a=add32(add32(a,q),add32(x,t));return add32((a<<ss)|(a>>>(32-ss)),b)}
+function ff(a,b,c,d,x,ss,t){return cmn((b&c)|((~b)&d),a,b,x,ss,t)}
+function gg(a,b,c,d,x,ss,t){return cmn((b&d)|(c&(~d)),a,b,x,ss,t)}
+function hh(a,b,c,d,x,ss,t){return cmn(b^c^d,a,b,x,ss,t)}
+function ii(a,b,c,d,x,ss,t){return cmn(c^(b|(~d)),a,b,x,ss,t)}
+function md5cycle(x,k){var a=x[0],b=x[1],c=x[2],d=x[3];
+a=ff(a,b,c,d,k[0],7,-680876936);d=ff(d,a,b,c,k[1],12,-389564586);c=ff(c,d,a,b,k[2],17,606105819);b=ff(b,c,d,a,k[3],22,-1044525330);
+a=ff(a,b,c,d,k[4],7,-176418897);d=ff(d,a,b,c,k[5],12,1200080426);c=ff(c,d,a,b,k[6],17,-1473231341);b=ff(b,c,d,a,k[7],22,-45705983);
+a=ff(a,b,c,d,k[8],7,1770035416);d=ff(d,a,b,c,k[9],12,-1958414417);c=ff(c,d,a,b,k[10],17,-42063);b=ff(b,c,d,a,k[11],22,-1990404162);
+a=ff(a,b,c,d,k[12],7,1804603682);d=ff(d,a,b,c,k[13],12,-40341101);c=ff(c,d,a,b,k[14],17,-1502002290);b=ff(b,c,d,a,k[15],22,1236535329);
+a=gg(a,b,c,d,k[1],5,-165796510);d=gg(d,a,b,c,k[6],9,-1069501632);c=gg(c,d,a,b,k[11],14,643717713);b=gg(b,c,d,a,k[0],20,-373897302);
+a=gg(a,b,c,d,k[5],5,-701558691);d=gg(d,a,b,c,k[10],9,38016083);c=gg(c,d,a,b,k[15],14,-660478335);b=gg(b,c,d,a,k[4],20,-405537848);
+a=gg(a,b,c,d,k[9],5,568446438);d=gg(d,a,b,c,k[14],9,-1019803690);c=gg(c,d,a,b,k[3],14,-187363961);b=gg(b,c,d,a,k[8],20,1163531501);
+a=gg(a,b,c,d,k[13],5,-1444681467);d=gg(d,a,b,c,k[2],9,-51403784);c=gg(c,d,a,b,k[7],14,1735328473);b=gg(b,c,d,a,k[12],20,-1926607734);
+a=hh(a,b,c,d,k[5],4,-378558);d=hh(d,a,b,c,k[8],11,-2022574463);c=hh(c,d,a,b,k[11],16,1839030562);b=hh(b,c,d,a,k[14],23,-35309556);
+a=hh(a,b,c,d,k[1],4,-1530992060);d=hh(d,a,b,c,k[4],11,1272893353);c=hh(c,d,a,b,k[7],16,-155497632);b=hh(b,c,d,a,k[10],23,-1094730640);
+a=hh(a,b,c,d,k[13],4,681279174);d=hh(d,a,b,c,k[0],11,-358537222);c=hh(c,d,a,b,k[3],16,-722521979);b=hh(b,c,d,a,k[6],23,76029189);
+a=hh(a,b,c,d,k[9],4,-640364487);d=hh(d,a,b,c,k[12],11,-421815835);c=hh(c,d,a,b,k[15],16,530742520);b=hh(b,c,d,a,k[2],23,-995338651);
+a=ii(a,b,c,d,k[0],6,-198630844);d=ii(d,a,b,c,k[7],10,1126891415);c=ii(c,d,a,b,k[14],15,-1416354905);b=ii(b,c,d,a,k[5],21,-57434055);
+a=ii(a,b,c,d,k[12],6,1700485571);d=ii(d,a,b,c,k[3],10,-1894986606);c=ii(c,d,a,b,k[10],15,-1051523);b=ii(b,c,d,a,k[1],21,-2054922799);
+a=ii(a,b,c,d,k[8],6,1873313359);d=ii(d,a,b,c,k[15],10,-30611744);c=ii(c,d,a,b,k[6],15,-1560198380);b=ii(b,c,d,a,k[13],21,1309151649);
+a=ii(a,b,c,d,k[4],6,-145523070);d=ii(d,a,b,c,k[11],10,-1120210379);c=ii(c,d,a,b,k[2],15,718787259);b=ii(b,c,d,a,k[9],21,-343485551);
+x[0]=add32(a,x[0]);x[1]=add32(b,x[1]);x[2]=add32(c,x[2]);x[3]=add32(d,x[3])}
+function md5blk(s){var o=[],i;for(i=0;i<64;i+=4)o[i>>2]=s.charCodeAt(i)+(s.charCodeAt(i+1)<<8)+(s.charCodeAt(i+2)<<16)+(s.charCodeAt(i+3)<<24);return o}
+s=utf8(s);var n=s.length,state=[1732584193,-271733879,-1732584194,271733878],i;
+for(i=64;i<=n;i+=64)md5cycle(state,md5blk(s.substring(i-64,i)));
+s=s.substring(i-64);var tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+for(i=0;i<s.length;i++)tail[i>>2]|=s.charCodeAt(i)<<((i%4)<<3);
+tail[i>>2]|=0x80<<((i%4)<<3);
+if(i>55){md5cycle(state,tail);tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}
+tail[14]=n*8;md5cycle(state,tail);
+return state.map(function(v){var o="",j;for(j=0;j<4;j++)o+=((v>>(j*8+4))&0x0F).toString(16)+((v>>(j*8))&0x0F).toString(16);return o}).join("")}
+
+const tKey = Math.floor(Date.now() / 1000).toString();
+request.variables.set("zt_tkey", tKey);
+// password = md5( md5(密码) + tKey )
+request.variables.set("zt_pwd", md5(md5("" + request.environment.get("zhutong_password") + "") + tKey));
+%}
+
+POST {{zhutong_base_url}}v2/sendSmsTp
+Content-Type: application/json;charset=utf-8
+
+{
+  "username": "{{zhutong_username}}",
+  "tKey": "{{zt_tkey}}",
+  "password": "{{zt_pwd}}",
+  "tpId": "{{zhutong_tpl_id}}",
+  "signature": "{{zhutong_signature}}",
+  "ext": "",
+  "extend": "",
+  "records": [
+    { "mobile": "{{phone}}", "tpContent": { "code": "{{code}}" } }
+  ]
+}
+
+### 助通 - 自定义短信（v2/sendSms，内容必须自带【签名】）
+< {%
+function utf8(s){return encodeURIComponent(s).replace(/%([0-9A-F]{2})/g,function(m,p){return String.fromCharCode(parseInt(p,16))})}
+function add32(a,b){return(a+b)&0xFFFFFFFF}
+function md5(s){function cmn(q,a,b,x,ss,t){a=add32(add32(a,q),add32(x,t));return add32((a<<ss)|(a>>>(32-ss)),b)}
+function ff(a,b,c,d,x,ss,t){return cmn((b&c)|((~b)&d),a,b,x,ss,t)}
+function gg(a,b,c,d,x,ss,t){return cmn((b&d)|(c&(~d)),a,b,x,ss,t)}
+function hh(a,b,c,d,x,ss,t){return cmn(b^c^d,a,b,x,ss,t)}
+function ii(a,b,c,d,x,ss,t){return cmn(c^(b|(~d)),a,b,x,ss,t)}
+function md5cycle(x,k){var a=x[0],b=x[1],c=x[2],d=x[3];
+a=ff(a,b,c,d,k[0],7,-680876936);d=ff(d,a,b,c,k[1],12,-389564586);c=ff(c,d,a,b,k[2],17,606105819);b=ff(b,c,d,a,k[3],22,-1044525330);
+a=ff(a,b,c,d,k[4],7,-176418897);d=ff(d,a,b,c,k[5],12,1200080426);c=ff(c,d,a,b,k[6],17,-1473231341);b=ff(b,c,d,a,k[7],22,-45705983);
+a=ff(a,b,c,d,k[8],7,1770035416);d=ff(d,a,b,c,k[9],12,-1958414417);c=ff(c,d,a,b,k[10],17,-42063);b=ff(b,c,d,a,k[11],22,-1990404162);
+a=ff(a,b,c,d,k[12],7,1804603682);d=ff(d,a,b,c,k[13],12,-40341101);c=ff(c,d,a,b,k[14],17,-1502002290);b=ff(b,c,d,a,k[15],22,1236535329);
+a=gg(a,b,c,d,k[1],5,-165796510);d=gg(d,a,b,c,k[6],9,-1069501632);c=gg(c,d,a,b,k[11],14,643717713);b=gg(b,c,d,a,k[0],20,-373897302);
+a=gg(a,b,c,d,k[5],5,-701558691);d=gg(d,a,b,c,k[10],9,38016083);c=gg(c,d,a,b,k[15],14,-660478335);b=gg(b,c,d,a,k[4],20,-405537848);
+a=gg(a,b,c,d,k[9],5,568446438);d=gg(d,a,b,c,k[14],9,-1019803690);c=gg(c,d,a,b,k[3],14,-187363961);b=gg(b,c,d,a,k[8],20,1163531501);
+a=gg(a,b,c,d,k[13],5,-1444681467);d=gg(d,a,b,c,k[2],9,-51403784);c=gg(c,d,a,b,k[7],14,1735328473);b=gg(b,c,d,a,k[12],20,-1926607734);
+a=hh(a,b,c,d,k[5],4,-378558);d=hh(d,a,b,c,k[8],11,-2022574463);c=hh(c,d,a,b,k[11],16,1839030562);b=hh(b,c,d,a,k[14],23,-35309556);
+a=hh(a,b,c,d,k[1],4,-1530992060);d=hh(d,a,b,c,k[4],11,1272893353);c=hh(c,d,a,b,k[7],16,-155497632);b=hh(b,c,d,a,k[10],23,-1094730640);
+a=hh(a,b,c,d,k[13],4,681279174);d=hh(d,a,b,c,k[0],11,-358537222);c=hh(c,d,a,b,k[3],16,-722521979);b=hh(b,c,d,a,k[6],23,76029189);
+a=hh(a,b,c,d,k[9],4,-640364487);d=hh(d,a,b,c,k[12],11,-421815835);c=hh(c,d,a,b,k[15],16,530742520);b=hh(b,c,d,a,k[2],23,-995338651);
+a=ii(a,b,c,d,k[0],6,-198630844);d=ii(d,a,b,c,k[7],10,1126891415);c=ii(c,d,a,b,k[14],15,-1416354905);b=ii(b,c,d,a,k[5],21,-57434055);
+a=ii(a,b,c,d,k[12],6,1700485571);d=ii(d,a,b,c,k[3],10,-1894986606);c=ii(c,d,a,b,k[10],15,-1051523);b=ii(b,c,d,a,k[1],21,-2054922799);
+a=ii(a,b,c,d,k[8],6,1873313359);d=ii(d,a,b,c,k[15],10,-30611744);c=ii(c,d,a,b,k[6],15,-1560198380);b=ii(b,c,d,a,k[13],21,1309151649);
+a=ii(a,b,c,d,k[4],6,-145523070);d=ii(d,a,b,c,k[11],10,-1120210379);c=ii(c,d,a,b,k[2],15,718787259);b=ii(b,c,d,a,k[9],21,-343485551);
+x[0]=add32(a,x[0]);x[1]=add32(b,x[1]);x[2]=add32(c,x[2]);x[3]=add32(d,x[3])}
+function md5blk(s){var o=[],i;for(i=0;i<64;i+=4)o[i>>2]=s.charCodeAt(i)+(s.charCodeAt(i+1)<<8)+(s.charCodeAt(i+2)<<16)+(s.charCodeAt(i+3)<<24);return o}
+s=utf8(s);var n=s.length,state=[1732584193,-271733879,-1732584194,271733878],i;
+for(i=64;i<=n;i+=64)md5cycle(state,md5blk(s.substring(i-64,i)));
+s=s.substring(i-64);var tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+for(i=0;i<s.length;i++)tail[i>>2]|=s.charCodeAt(i)<<((i%4)<<3);
+tail[i>>2]|=0x80<<((i%4)<<3);
+if(i>55){md5cycle(state,tail);tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}
+tail[14]=n*8;md5cycle(state,tail);
+return state.map(function(v){var o="",j;for(j=0;j<4;j++)o+=((v>>(j*8+4))&0x0F).toString(16)+((v>>(j*8))&0x0F).toString(16);return o}).join("")}
+
+const tKey = Math.floor(Date.now() / 1000).toString();
+request.variables.set("zt_tkey2", tKey);
+request.variables.set("zt_pwd2", md5(md5("" + request.environment.get("zhutong_password") + "") + tKey));
+%}
+
+POST {{zhutong_base_url}}v2/sendSms
+Content-Type: application/json;charset=utf-8
+
+{
+  "username": "{{zhutong_username}}",
+  "password": "{{zt_pwd2}}",
+  "tKey": "{{zt_tkey2}}",
+  "mobile": "{{phone}},{{phone2}}",
+  "content": "【{{zhutong_signature}}】您的验证码是{{code}}，5分钟内有效。"
+}
+
+
+# =====================================================================================================================
+# 3. 阿里云（aliyun）— POP v1 签名：全参数排序 + RFC3986 编码 + HMAC-SHA1
+#    描述文件: channels/aliyun.api.json | 成功判定: $.Code == 'OK'
+#    签名与公共参数进 URL 查询串，业务参数进 form body
+# =====================================================================================================================
+
+### 阿里云 - SendSms（POP v1 签名）
+< {%
+// ---- hmac-sha1（纯 JS 实现，与标准库逐字节一致）----
+function utf8(s){return encodeURIComponent(s).replace(/%([0-9A-F]{2})/g,function(m,p){return String.fromCharCode(parseInt(p,16))})}
+function strToBytes(s){s=utf8(s);var b=[],i;for(i=0;i<s.length;i++)b.push(s.charCodeAt(i));return b}
+function sha1bytes(msg){function rotl(v,t){return(v<<t)|(v>>>(32-t))}
+var padded=msg.slice(),ml=msg.length;padded.push(0x80);
+while(padded.length%64!==56)padded.push(0);
+var hi=Math.floor(ml*8/0x100000000),lo=(ml*8)>>>0;
+padded.push((hi>>>24)&0xff,(hi>>>16)&0xff,(hi>>>8)&0xff,hi&0xff,(lo>>>24)&0xff,(lo>>>16)&0xff,(lo>>>8)&0xff,lo&0xff);
+var H=[0x67452301,0xEFCDAB89,0x98BADCFE,0x10325476,0xC3D2E1F0],W=new Array(80),off,t;
+for(off=0;off<padded.length;off+=64){
+for(t=0;t<16;t++)W[t]=(padded[off+t*4]<<24)|(padded[off+t*4+1]<<16)|(padded[off+t*4+2]<<8)|padded[off+t*4+3];
+for(t=16;t<80;t++)W[t]=rotl(W[t-3]^W[t-8]^W[t-14]^W[t-16],1);
+var a=H[0],b=H[1],c=H[2],d=H[3],e=H[4];
+for(t=0;t<80;t++){var f,K;
+if(t<20){f=(b&c)^((~b)&d);K=0x5a827999}else if(t<40){f=b^c^d;K=0x6ed9eba1}
+else if(t<60){f=(b&c)^(b&d)^(c&d);K=0x8f1bbcdc}else{f=b^c^d;K=0xca62c1d6}
+var T=(rotl(a,5)+f+e+K+W[t])|0;e=d;d=c;c=rotl(b,30);b=a;a=T}
+H[0]=(H[0]+a)|0;H[1]=(H[1]+b)|0;H[2]=(H[2]+c)|0;H[3]=(H[3]+d)|0;H[4]=(H[4]+e)|0}
+var out=[],i;for(i=0;i<5;i++)out.push((H[i]>>>24)&0xff,(H[i]>>>16)&0xff,(H[i]>>>8)&0xff,H[i]&0xff);return out}
+function hmacSha1Base64(key,message){
+var bkey=strToBytes(key);if(bkey.length>64)bkey=sha1bytes(bkey);
+while(bkey.length<64)bkey.push(0);
+var inner=sha1bytes(bkey.map(function(k){return k^0x36}).concat(strToBytes(message)));
+var bytes=sha1bytes(bkey.map(function(k){return k^0x5c}).concat(inner));
+return btoa(String.fromCharCode.apply(null,bytes))}
+// 阿里云 percentEncode（RFC3986）
+function pe(s){return encodeURIComponent(s).replace(/[!'()*]/g,function(c){return"%"+c.charCodeAt(0).toString(16).toUpperCase()})}
+
+const common = {
+  SignatureMethod: "HMAC-SHA1",
+  SignatureNonce: Date.now().toString(36) + Math.random().toString(36).slice(2, 10),
+  AccessKeyId: "" + request.environment.get("aliyun_ak") + "",
+  SignatureVersion: "1.0",
+  Timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+  Format: "JSON",
+  Action: "SendSms",
+  Version: "2017-05-25",
+  RegionId: "cn-hangzhou"
+};
+const biz = {
+  PhoneNumbers: "" + request.environment.get("phone") + "",
+  SignName: "" + request.environment.get("aliyun_sign") + "",
+  TemplateParam: JSON.stringify({ code: "" + request.environment.get("code") + "" }),
+  TemplateCode: "" + request.environment.get("aliyun_tpl_code") + ""
+};
+const all = Object.assign({}, common, biz);
+// 全部参数按 key 升序 + RFC3986 编码拼 canonical
+const canonical = Object.keys(all).sort().map(function(k){return pe(k)+"="+pe(all[k])}).join("&");
+// StringToSign = POST&%2F&percentEncode(canonical)
+const stringToSign = "POST&%2F&" + pe(canonical);
+// Signature = Base64(HMAC-SHA1(secret + "&", stringToSign))
+const signature = hmacSha1Base64("" + request.environment.get("aliyun_sk") + "&", stringToSign);
+
+request.variables.set("ali_sig", pe(signature));
+request.variables.set("ali_query", Object.keys(common).sort().map(function(k){return pe(k)+"="+pe(common[k])}).join("&"));
+request.variables.set("ali_body", Object.keys(biz).map(function(k){return pe(k)+"="+pe(biz[k])}).join("&"));
+%}
+
+POST https://{{aliyun_host}}/?Signature={{ali_sig}}&{{ali_query}}
+Content-Type: application/x-www-form-urlencoded
+
+{{ali_body}}
+
+
+# =====================================================================================================================
+# 4. 腾讯云（tencent）— TC3-HMAC-SHA256 四步密钥派生（官方 crypto API）
+#    描述文件: channels/tencent.api.json | 成功判定: $.Response.SendStatusSet[0].Code == 'Ok'
+#    请求体先在脚本中构造（{{tc_body}}），保证 payload 哈希与实际发送字节完全一致
+# =====================================================================================================================
+
+### 腾讯云 - SendSms（TC3 签名）
+< {%
+const hash = function(s){return crypto.sha256().updateWithText(s).digest().toHex()};
+const hmac = function(secret,s){return crypto.hmac.sha256().updateWithText(s).withTextSecret(secret).digest().toHex()};
+
+const ts = Math.floor(Date.now() / 1000).toString();
+const date = new Date().toISOString().slice(0, 10);   // UTC 日期 yyyy-MM-dd
+
+const body = JSON.stringify({
+  PhoneNumberSet: ["+86" + request.environment.get("phone") + ""],
+  SmsSdkAppId: "" + request.environment.get("tencent_sdk_app_id") + "",
+  SignName: "" + request.environment.get("tencent_sign") + "",
+  TemplateId: "" + request.environment.get("tencent_tpl_id") + "",
+  TemplateParamSet: ["" + request.environment.get("code") + ""]
+});
+request.variables.set("tc_body", body);
+request.variables.set("tc_ts", ts);
+
+const canonicalRequest = "POST\n/\n\n"
+  + "content-type:application/json; charset=utf-8\n"
+  + "host:" + request.environment.get("tencent_host") + "\n\n"
+  + "content-type;host\n"
+  + hash(body);
+const credentialScope = date + "/sms/tc3_request";
+const stringToSign = "TC3-HMAC-SHA256\n" + ts + "\n" + credentialScope + "\n" + hash(canonicalRequest);
+// 四步密钥派生：TC3+secret -> date -> service -> tc3_request -> 签名
+const kDate = hmac("TC3" + request.environment.get("tencent_sk") + "", date);
+const kService = hmac(kDate, "sms");
+const kSigning = hmac(kService, "tc3_request");
+const signature = hmac(kSigning, stringToSign);
+
+request.variables.set("tc_auth",
+  "TC3-HMAC-SHA256 Credential=" + request.environment.get("tencent_ak") + "/" + credentialScope
+  + ", SignedHeaders=content-type;host, Signature=" + signature);
+%}
+
+POST https://{{tencent_host}}
+Authorization: {{tc_auth}}
+Content-Type: application/json; charset=utf-8
+Host: {{tencent_host}}
+X-TC-Action: SendSms
+X-TC-Timestamp: {{tc_ts}}
+X-TC-Version: 2021-01-11
+X-TC-Region: ap-guangzhou
+
+{{tc_body}}
+
+
+# =====================================================================================================================
+# 5. 云片（yunpian）— 明文 apikey、form body，变量格式 #key#=value&
+#    描述文件: channels/yunpian.api.json | 成功判定: $.code == 0
+# =====================================================================================================================
+
+### 云片 - 模板单发（tpl_value = #code#=1234，已 URL 编码）
+POST https://sms.yunpian.com/v2/sms/tpl_single_send.json
+Accept: application/json;charset=utf-8
+Content-Type: application/x-www-form-urlencoded
+
+apikey={{yunpian_apikey}}&mobile={{phone}}&tpl_id={{yunpian_tpl_id}}&tpl_value=%23code%23%3D{{code}}
+
+
+# =====================================================================================================================
+# 6. 网易云信（netease）— CheckSum = sha1(secret + nonce + curTime) 放请求头
+#    描述文件: channels/netease.api.json | 成功判定: $.code <= 200
+# =====================================================================================================================
+
+### 网易云信 - 模板短信（CheckSum 头 + JSON 数组字符串参数）
+< {%
+// ---- sha1（纯 JS 实现，与标准库逐字节一致）----
+function utf8(s){return encodeURIComponent(s).replace(/%([0-9A-F]{2})/g,function(m,p){return String.fromCharCode(parseInt(p,16))})}
+function strToBytes(s){s=utf8(s);var b=[],i;for(i=0;i<s.length;i++)b.push(s.charCodeAt(i));return b}
+function bytesToHex(b){return b.map(function(x){return(x<16?"0":"")+x.toString(16)}).join("")}
+function sha1(s){function rotl(v,t){return(v<<t)|(v>>>(32-t))}
+var msg=strToBytes(s),padded=msg.slice(),ml=msg.length;padded.push(0x80);
+while(padded.length%64!==56)padded.push(0);
+var hi=Math.floor(ml*8/0x100000000),lo=(ml*8)>>>0;
+padded.push((hi>>>24)&0xff,(hi>>>16)&0xff,(hi>>>8)&0xff,hi&0xff,(lo>>>24)&0xff,(lo>>>16)&0xff,(lo>>>8)&0xff,lo&0xff);
+var H=[0x67452301,0xEFCDAB89,0x98BADCFE,0x10325476,0xC3D2E1F0],W=new Array(80),off,t;
+for(off=0;off<padded.length;off+=64){
+for(t=0;t<16;t++)W[t]=(padded[off+t*4]<<24)|(padded[off+t*4+1]<<16)|(padded[off+t*4+2]<<8)|padded[off+t*4+3];
+for(t=16;t<80;t++)W[t]=rotl(W[t-3]^W[t-8]^W[t-14]^W[t-16],1);
+var a=H[0],b=H[1],c=H[2],d=H[3],e=H[4];
+for(t=0;t<80;t++){var f,K;
+if(t<20){f=(b&c)^((~b)&d);K=0x5a827999}else if(t<40){f=b^c^d;K=0x6ed9eba1}
+else if(t<60){f=(b&c)^(b&d)^(c&d);K=0x8f1bbcdc}else{f=b^c^d;K=0xca62c1d6}
+var T=(rotl(a,5)+f+e+K+W[t])|0;e=d;d=c;c=rotl(b,30);b=a;a=T}
+H[0]=(H[0]+a)|0;H[1]=(H[1]+b)|0;H[2]=(H[2]+c)|0;H[3]=(H[3]+d)|0;H[4]=(H[4]+e)|0}
+var out=[],i;for(i=0;i<5;i++)out.push((H[i]>>>24)&0xff,(H[i]>>>16)&0xff,(H[i]>>>8)&0xff,H[i]&0xff);return out}
+
+const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+const curTime = Math.floor(Date.now() / 1000).toString();
+request.variables.set("ne_nonce", nonce);
+request.variables.set("ne_curtime", curTime);
+// CheckSum = sha1(secret + nonce + curTime)
+request.variables.set("ne_checksum", bytesToHex(sha1("" + request.environment.get("netease_secret") + "" + nonce + curTime)));
+%}
+
+POST {{netease_tpl_url}}
+Content-Type: application/x-www-form-urlencoded
+AppKey: {{netease_appkey}}
+Nonce: {{ne_nonce}}
+CurTime: {{ne_curtime}}
+CheckSum: {{ne_checksum}}
+
+templateid={{netease_tpl_id}}&mobiles=%5B%22{{phone}}%22%5D&params=%5B%22{{code}}%22%5D&needUp=false
+
+
+# =====================================================================================================================
+# 7. 容联云（cloopen）— sig = UPPER(MD5(sid+token+时间戳)) 进 URL；Authorization = Base64(sid:时间戳)
+#    描述文件: channels/cloopen.api.json | 成功判定: $.statusCode == '000000'
+# =====================================================================================================================
+
+### 容联云 - 模板短信
+< {%
+function utf8(s){return encodeURIComponent(s).replace(/%([0-9A-F]{2})/g,function(m,p){return String.fromCharCode(parseInt(p,16))})}
+function add32(a,b){return(a+b)&0xFFFFFFFF}
+function md5(s){function cmn(q,a,b,x,ss,t){a=add32(add32(a,q),add32(x,t));return add32((a<<ss)|(a>>>(32-ss)),b)}
+function ff(a,b,c,d,x,ss,t){return cmn((b&c)|((~b)&d),a,b,x,ss,t)}
+function gg(a,b,c,d,x,ss,t){return cmn((b&d)|(c&(~d)),a,b,x,ss,t)}
+function hh(a,b,c,d,x,ss,t){return cmn(b^c^d,a,b,x,ss,t)}
+function ii(a,b,c,d,x,ss,t){return cmn(c^(b|(~d)),a,b,x,ss,t)}
+function md5cycle(x,k){var a=x[0],b=x[1],c=x[2],d=x[3];
+a=ff(a,b,c,d,k[0],7,-680876936);d=ff(d,a,b,c,k[1],12,-389564586);c=ff(c,d,a,b,k[2],17,606105819);b=ff(b,c,d,a,k[3],22,-1044525330);
+a=ff(a,b,c,d,k[4],7,-176418897);d=ff(d,a,b,c,k[5],12,1200080426);c=ff(c,d,a,b,k[6],17,-1473231341);b=ff(b,c,d,a,k[7],22,-45705983);
+a=ff(a,b,c,d,k[8],7,1770035416);d=ff(d,a,b,c,k[9],12,-1958414417);c=ff(c,d,a,b,k[10],17,-42063);b=ff(b,c,d,a,k[11],22,-1990404162);
+a=ff(a,b,c,d,k[12],7,1804603682);d=ff(d,a,b,c,k[13],12,-40341101);c=ff(c,d,a,b,k[14],17,-1502002290);b=ff(b,c,d,a,k[15],22,1236535329);
+a=gg(a,b,c,d,k[1],5,-165796510);d=gg(d,a,b,c,k[6],9,-1069501632);c=gg(c,d,a,b,k[11],14,643717713);b=gg(b,c,d,a,k[0],20,-373897302);
+a=gg(a,b,c,d,k[5],5,-701558691);d=gg(d,a,b,c,k[10],9,38016083);c=gg(c,d,a,b,k[15],14,-660478335);b=gg(b,c,d,a,k[4],20,-405537848);
+a=gg(a,b,c,d,k[9],5,568446438);d=gg(d,a,b,c,k[14],9,-1019803690);c=gg(c,d,a,b,k[3],14,-187363961);b=gg(b,c,d,a,k[8],20,1163531501);
+a=gg(a,b,c,d,k[13],5,-1444681467);d=gg(d,a,b,c,k[2],9,-51403784);c=gg(c,d,a,b,k[7],14,1735328473);b=gg(b,c,d,a,k[12],20,-1926607734);
+a=hh(a,b,c,d,k[5],4,-378558);d=hh(d,a,b,c,k[8],11,-2022574463);c=hh(c,d,a,b,k[11],16,1839030562);b=hh(b,c,d,a,k[14],23,-35309556);
+a=hh(a,b,c,d,k[1],4,-1530992060);d=hh(d,a,b,c,k[4],11,1272893353);c=hh(c,d,a,b,k[7],16,-155497632);b=hh(b,c,d,a,k[10],23,-1094730640);
+a=hh(a,b,c,d,k[13],4,681279174);d=hh(d,a,b,c,k[0],11,-358537222);c=hh(c,d,a,b,k[3],16,-722521979);b=hh(b,c,d,a,k[6],23,76029189);
+a=hh(a,b,c,d,k[9],4,-640364487);d=hh(d,a,b,c,k[12],11,-421815835);c=hh(c,d,a,b,k[15],16,530742520);b=hh(b,c,d,a,k[2],23,-995338651);
+a=ii(a,b,c,d,k[0],6,-198630844);d=ii(d,a,b,c,k[7],10,1126891415);c=ii(c,d,a,b,k[14],15,-1416354905);b=ii(b,c,d,a,k[5],21,-57434055);
+a=ii(a,b,c,d,k[12],6,1700485571);d=ii(d,a,b,c,k[3],10,-1894986606);c=ii(c,d,a,b,k[10],15,-1051523);b=ii(b,c,d,a,k[1],21,-2054922799);
+a=ii(a,b,c,d,k[8],6,1873313359);d=ii(d,a,b,c,k[15],10,-30611744);c=ii(c,d,a,b,k[6],15,-1560198380);b=ii(b,c,d,a,k[13],21,1309151649);
+a=ii(a,b,c,d,k[4],6,-145523070);d=ii(d,a,b,c,k[11],10,-1120210379);c=ii(c,d,a,b,k[2],15,718787259);b=ii(b,c,d,a,k[9],21,-343485551);
+x[0]=add32(a,x[0]);x[1]=add32(b,x[1]);x[2]=add32(c,x[2]);x[3]=add32(d,x[3])}
+function md5blk(s){var o=[],i;for(i=0;i<64;i+=4)o[i>>2]=s.charCodeAt(i)+(s.charCodeAt(i+1)<<8)+(s.charCodeAt(i+2)<<16)+(s.charCodeAt(i+3)<<24);return o}
+s=utf8(s);var n=s.length,state=[1732584193,-271733879,-1732584194,271733878],i;
+for(i=64;i<=n;i+=64)md5cycle(state,md5blk(s.substring(i-64,i)));
+s=s.substring(i-64);var tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+for(i=0;i<s.length;i++)tail[i>>2]|=s.charCodeAt(i)<<((i%4)<<3);
+tail[i>>2]|=0x80<<((i%4)<<3);
+if(i>55){md5cycle(state,tail);tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}
+tail[14]=n*8;md5cycle(state,tail);
+return state.map(function(v){var o="",j;for(j=0;j<4;j++)o+=((v>>(j*8+4))&0x0F).toString(16)+((v>>(j*8))&0x0F).toString(16);return o}).join("")}
+
+function pad(n){return n<10?"0"+n:""+n}
+const d = new Date();   // 引擎按 Asia/Shanghai 时区取时间戳（本机时区一致即可）
+const ts = "" + d.getFullYear() + pad(d.getMonth()+1) + pad(d.getDate()) + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
+request.variables.set("cl_ts", ts);
+// sig = UPPER(MD5(sid + token + 时间戳))
+request.variables.set("cl_sig", md5("" + request.environment.get("cloopen_sid") + "" + "" + request.environment.get("cloopen_token") + "" + ts).toUpperCase());
+// Authorization = Base64(sid:时间戳)
+request.variables.set("cl_auth", btoa("" + request.environment.get("cloopen_sid") + ":" + ts));
+%}
+
+POST {{cloopen_base_url}}/Accounts/{{cloopen_sid}}/SMS/TemplateSMS?sig={{cl_sig}}
+Accept: application/json
+Content-Type: application/json;charset=utf-8
+Authorization: {{cl_auth}}
+
+{
+  "to": "{{phone}}",
+  "appId": "{{cloopen_app_id}}",
+  "templateId": "{{cloopen_tpl_id}}",
+  "datas": ["{{code}}"]
+}
+
+
+# =====================================================================================================================
+# 8. 中国移动云MAS（mas）— mac = MD5(字段按序拼接)，整体 JSON Base64 后作为请求体
+#    描述文件: channels/mas.api.json | 成功判定: $.rspcod == 'success' && $.success == true
+# =====================================================================================================================
+
+### 云MAS - 模板短信（tmpsubmit）
+< {%
+function utf8(s){return encodeURIComponent(s).replace(/%([0-9A-F]{2})/g,function(m,p){return String.fromCharCode(parseInt(p,16))})}
+function add32(a,b){return(a+b)&0xFFFFFFFF}
+function md5(s){function cmn(q,a,b,x,ss,t){a=add32(add32(a,q),add32(x,t));return add32((a<<ss)|(a>>>(32-ss)),b)}
+function ff(a,b,c,d,x,ss,t){return cmn((b&c)|((~b)&d),a,b,x,ss,t)}
+function gg(a,b,c,d,x,ss,t){return cmn((b&d)|(c&(~d)),a,b,x,ss,t)}
+function hh(a,b,c,d,x,ss,t){return cmn(b^c^d,a,b,x,ss,t)}
+function ii(a,b,c,d,x,ss,t){return cmn(c^(b|(~d)),a,b,x,ss,t)}
+function md5cycle(x,k){var a=x[0],b=x[1],c=x[2],d=x[3];
+a=ff(a,b,c,d,k[0],7,-680876936);d=ff(d,a,b,c,k[1],12,-389564586);c=ff(c,d,a,b,k[2],17,606105819);b=ff(b,c,d,a,k[3],22,-1044525330);
+a=ff(a,b,c,d,k[4],7,-176418897);d=ff(d,a,b,c,k[5],12,1200080426);c=ff(c,d,a,b,k[6],17,-1473231341);b=ff(b,c,d,a,k[7],22,-45705983);
+a=ff(a,b,c,d,k[8],7,1770035416);d=ff(d,a,b,c,k[9],12,-1958414417);c=ff(c,d,a,b,k[10],17,-42063);b=ff(b,c,d,a,k[11],22,-1990404162);
+a=ff(a,b,c,d,k[12],7,1804603682);d=ff(d,a,b,c,k[13],12,-40341101);c=ff(c,d,a,b,k[14],17,-1502002290);b=ff(b,c,d,a,k[15],22,1236535329);
+a=gg(a,b,c,d,k[1],5,-165796510);d=gg(d,a,b,c,k[6],9,-1069501632);c=gg(c,d,a,b,k[11],14,643717713);b=gg(b,c,d,a,k[0],20,-373897302);
+a=gg(a,b,c,d,k[5],5,-701558691);d=gg(d,a,b,c,k[10],9,38016083);c=gg(c,d,a,b,k[15],14,-660478335);b=gg(b,c,d,a,k[4],20,-405537848);
+a=gg(a,b,c,d,k[9],5,568446438);d=gg(d,a,b,c,k[14],9,-1019803690);c=gg(c,d,a,b,k[3],14,-187363961);b=gg(b,c,d,a,k[8],20,1163531501);
+a=gg(a,b,c,d,k[13],5,-1444681467);d=gg(d,a,b,c,k[2],9,-51403784);c=gg(c,d,a,b,k[7],14,1735328473);b=gg(b,c,d,a,k[12],20,-1926607734);
+a=hh(a,b,c,d,k[5],4,-378558);d=hh(d,a,b,c,k[8],11,-2022574463);c=hh(c,d,a,b,k[11],16,1839030562);b=hh(b,c,d,a,k[14],23,-35309556);
+a=hh(a,b,c,d,k[1],4,-1530992060);d=hh(d,a,b,c,k[4],11,1272893353);c=hh(c,d,a,b,k[7],16,-155497632);b=hh(b,c,d,a,k[10],23,-1094730640);
+a=hh(a,b,c,d,k[13],4,681279174);d=hh(d,a,b,c,k[0],11,-358537222);c=hh(c,d,a,b,k[3],16,-722521979);b=hh(b,c,d,a,k[6],23,76029189);
+a=hh(a,b,c,d,k[9],4,-640364487);d=hh(d,a,b,c,k[12],11,-421815835);c=hh(c,d,a,b,k[15],16,530742520);b=hh(b,c,d,a,k[2],23,-995338651);
+a=ii(a,b,c,d,k[0],6,-198630844);d=ii(d,a,b,c,k[7],10,1126891415);c=ii(c,d,a,b,k[14],15,-1416354905);b=ii(b,c,d,a,k[5],21,-57434055);
+a=ii(a,b,c,d,k[12],6,1700485571);d=ii(d,a,b,c,k[3],10,-1894986606);c=ii(c,d,a,b,k[10],15,-1051523);b=ii(b,c,d,a,k[1],21,-2054922799);
+a=ii(a,b,c,d,k[8],6,1873313359);d=ii(d,a,b,c,k[15],10,-30611744);c=ii(c,d,a,b,k[6],15,-1560198380);b=ii(b,c,d,a,k[13],21,1309151649);
+a=ii(a,b,c,d,k[4],6,-145523070);d=ii(d,a,b,c,k[11],10,-1120210379);c=ii(c,d,a,b,k[2],15,718787259);b=ii(b,c,d,a,k[9],21,-343485551);
+x[0]=add32(a,x[0]);x[1]=add32(b,x[1]);x[2]=add32(c,x[2]);x[3]=add32(d,x[3])}
+function md5blk(s){var o=[],i;for(i=0;i<64;i+=4)o[i>>2]=s.charCodeAt(i)+(s.charCodeAt(i+1)<<8)+(s.charCodeAt(i+2)<<16)+(s.charCodeAt(i+3)<<24);return o}
+s=utf8(s);var n=s.length,state=[1732584193,-271733879,-1732584194,271733878],i;
+for(i=64;i<=n;i+=64)md5cycle(state,md5blk(s.substring(i-64,i)));
+s=s.substring(i-64);var tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+for(i=0;i<s.length;i++)tail[i>>2]|=s.charCodeAt(i)<<((i%4)<<3);
+tail[i>>2]|=0x80<<((i%4)<<3);
+if(i>55){md5cycle(state,tail);tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}
+tail[14]=n*8;md5cycle(state,tail);
+return state.map(function(v){var o="",j;for(j=0;j<4;j++)o+=((v>>(j*8+4))&0x0F).toString(16)+((v>>(j*8))&0x0F).toString(16);return o}).join("")}
+
+const mobiles = "" + request.environment.get("phone") + "";
+const params = JSON.stringify(["" + request.environment.get("code") + ""]);
+const sign = "" + request.environment.get("mas_sign") + "";
+const addSerial = "" + request.environment.get("mas_add_serial") + "";
+// mac = md5(ecName + apId + secretKey + templateId + mobiles + params + sign + addSerial)
+const mac = md5("" + request.environment.get("mas_ec_name") + "" + "" + request.environment.get("mas_ap_id") + "" + "" + request.environment.get("mas_secret") + "" + "" + request.environment.get("mas_tpl_id") + "" + mobiles + params + sign + addSerial);
+const payload = JSON.stringify({
+  ecName: "" + request.environment.get("mas_ec_name") + "", apId: "" + request.environment.get("mas_ap_id") + "", secretKey: "" + request.environment.get("mas_secret") + "",
+  templateId: "" + request.environment.get("mas_tpl_id") + "", mobiles: mobiles, params: params,
+  sign: sign, addSerial: addSerial, mac: mac
+});
+// 整体 JSON 按 UTF-8 字节做 Base64 后作为请求体
+request.variables.set("mas_body", btoa(utf8(payload)));
+%}
+
+POST {{mas_url}}tmpsubmit
+Content-Type: application/json
+
+{{mas_body}}
+
+### 云MAS - 自定义短信（norsubmit）
+< {%
+function utf8(s){return encodeURIComponent(s).replace(/%([0-9A-F]{2})/g,function(m,p){return String.fromCharCode(parseInt(p,16))})}
+function add32(a,b){return(a+b)&0xFFFFFFFF}
+function md5(s){function cmn(q,a,b,x,ss,t){a=add32(add32(a,q),add32(x,t));return add32((a<<ss)|(a>>>(32-ss)),b)}
+function ff(a,b,c,d,x,ss,t){return cmn((b&c)|((~b)&d),a,b,x,ss,t)}
+function gg(a,b,c,d,x,ss,t){return cmn((b&d)|(c&(~d)),a,b,x,ss,t)}
+function hh(a,b,c,d,x,ss,t){return cmn(b^c^d,a,b,x,ss,t)}
+function ii(a,b,c,d,x,ss,t){return cmn(c^(b|(~d)),a,b,x,ss,t)}
+function md5cycle(x,k){var a=x[0],b=x[1],c=x[2],d=x[3];
+a=ff(a,b,c,d,k[0],7,-680876936);d=ff(d,a,b,c,k[1],12,-389564586);c=ff(c,d,a,b,k[2],17,606105819);b=ff(b,c,d,a,k[3],22,-1044525330);
+a=ff(a,b,c,d,k[4],7,-176418897);d=ff(d,a,b,c,k[5],12,1200080426);c=ff(c,d,a,b,k[6],17,-1473231341);b=ff(b,c,d,a,k[7],22,-45705983);
+a=ff(a,b,c,d,k[8],7,1770035416);d=ff(d,a,b,c,k[9],12,-1958414417);c=ff(c,d,a,b,k[10],17,-42063);b=ff(b,c,d,a,k[11],22,-1990404162);
+a=ff(a,b,c,d,k[12],7,1804603682);d=ff(d,a,b,c,k[13],12,-40341101);c=ff(c,d,a,b,k[14],17,-1502002290);b=ff(b,c,d,a,k[15],22,1236535329);
+a=gg(a,b,c,d,k[1],5,-165796510);d=gg(d,a,b,c,k[6],9,-1069501632);c=gg(c,d,a,b,k[11],14,643717713);b=gg(b,c,d,a,k[0],20,-373897302);
+a=gg(a,b,c,d,k[5],5,-701558691);d=gg(d,a,b,c,k[10],9,38016083);c=gg(c,d,a,b,k[15],14,-660478335);b=gg(b,c,d,a,k[4],20,-405537848);
+a=gg(a,b,c,d,k[9],5,568446438);d=gg(d,a,b,c,k[14],9,-1019803690);c=gg(c,d,a,b,k[3],14,-187363961);b=gg(b,c,d,a,k[8],20,1163531501);
+a=gg(a,b,c,d,k[13],5,-1444681467);d=gg(d,a,b,c,k[2],9,-51403784);c=gg(c,d,a,b,k[7],14,1735328473);b=gg(b,c,d,a,k[12],20,-1926607734);
+a=hh(a,b,c,d,k[5],4,-378558);d=hh(d,a,b,c,k[8],11,-2022574463);c=hh(c,d,a,b,k[11],16,1839030562);b=hh(b,c,d,a,k[14],23,-35309556);
+a=hh(a,b,c,d,k[1],4,-1530992060);d=hh(d,a,b,c,k[4],11,1272893353);c=hh(c,d,a,b,k[7],16,-155497632);b=hh(b,c,d,a,k[10],23,-1094730640);
+a=hh(a,b,c,d,k[13],4,681279174);d=hh(d,a,b,c,k[0],11,-358537222);c=hh(c,d,a,b,k[3],16,-722521979);b=hh(b,c,d,a,k[6],23,76029189);
+a=hh(a,b,c,d,k[9],4,-640364487);d=hh(d,a,b,c,k[12],11,-421815835);c=hh(c,d,a,b,k[15],16,530742520);b=hh(b,c,d,a,k[2],23,-995338651);
+a=ii(a,b,c,d,k[0],6,-198630844);d=ii(d,a,b,c,k[7],10,1126891415);c=ii(c,d,a,b,k[14],15,-1416354905);b=ii(b,c,d,a,k[5],21,-57434055);
+a=ii(a,b,c,d,k[12],6,1700485571);d=ii(d,a,b,c,k[3],10,-1894986606);c=ii(c,d,a,b,k[10],15,-1051523);b=ii(b,c,d,a,k[1],21,-2054922799);
+a=ii(a,b,c,d,k[8],6,1873313359);d=ii(d,a,b,c,k[15],10,-30611744);c=ii(c,d,a,b,k[6],15,-1560198380);b=ii(b,c,d,a,k[13],21,1309151649);
+a=ii(a,b,c,d,k[4],6,-145523070);d=ii(d,a,b,c,k[11],10,-1120210379);c=ii(c,d,a,b,k[2],15,718787259);b=ii(b,c,d,a,k[9],21,-343485551);
+x[0]=add32(a,x[0]);x[1]=add32(b,x[1]);x[2]=add32(c,x[2]);x[3]=add32(d,x[3])}
+function md5blk(s){var o=[],i;for(i=0;i<64;i+=4)o[i>>2]=s.charCodeAt(i)+(s.charCodeAt(i+1)<<8)+(s.charCodeAt(i+2)<<16)+(s.charCodeAt(i+3)<<24);return o}
+s=utf8(s);var n=s.length,state=[1732584193,-271733879,-1732584194,271733878],i;
+for(i=64;i<=n;i+=64)md5cycle(state,md5blk(s.substring(i-64,i)));
+s=s.substring(i-64);var tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+for(i=0;i<s.length;i++)tail[i>>2]|=s.charCodeAt(i)<<((i%4)<<3);
+tail[i>>2]|=0x80<<((i%4)<<3);
+if(i>55){md5cycle(state,tail);tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}
+tail[14]=n*8;md5cycle(state,tail);
+return state.map(function(v){var o="",j;for(j=0;j<4;j++)o+=((v>>(j*8+4))&0x0F).toString(16)+((v>>(j*8))&0x0F).toString(16);return o}).join("")}
+
+const mobiles = "" + request.environment.get("phone") + "";
+const content = "【" + request.environment.get("mas_sign") + "】您的验证码是" + request.environment.get("code") + "，请勿泄露。";
+const sign = "" + request.environment.get("mas_sign") + "";
+const addSerial = "" + request.environment.get("mas_add_serial") + "";
+// mac = md5(ecName + apId + secretKey + mobiles + content + sign + addSerial)
+const mac = md5("" + request.environment.get("mas_ec_name") + "" + "" + request.environment.get("mas_ap_id") + "" + "" + request.environment.get("mas_secret") + "" + mobiles + content + sign + addSerial);
+const payload = JSON.stringify({
+  ecName: "" + request.environment.get("mas_ec_name") + "", apId: "" + request.environment.get("mas_ap_id") + "", secretKey: "" + request.environment.get("mas_secret") + "",
+  mobiles: mobiles, content: content,
+  sign: sign, addSerial: addSerial, mac: mac
+});
+request.variables.set("mas_body2", btoa(utf8(payload)));
+%}
+
+POST {{mas_url}}norsubmit
+Content-Type: application/json
+
+{{mas_body2}}
+
+
+# =====================================================================================================================
+# 9. 赛邮云（submail）— 前置请求取服务端时间戳；签名 = appid+secret+排序参数+appid+secret 的 MD5
+#    描述文件: channels/submail.api.json | 成功判定: $.status == 'success'
+# =====================================================================================================================
+
+### 赛邮 - 前置：获取服务端时间戳（引擎自动执行；手工联调可取其 timestamp 替换脚本中的本地时间）
+GET https://api-v4.mysubmail.com/service/timestamp
+
+### 赛邮 - send.json 自定义内容单发
+< {%
+function utf8(s){return encodeURIComponent(s).replace(/%([0-9A-F]{2})/g,function(m,p){return String.fromCharCode(parseInt(p,16))})}
+function add32(a,b){return(a+b)&0xFFFFFFFF}
+function md5(s){function cmn(q,a,b,x,ss,t){a=add32(add32(a,q),add32(x,t));return add32((a<<ss)|(a>>>(32-ss)),b)}
+function ff(a,b,c,d,x,ss,t){return cmn((b&c)|((~b)&d),a,b,x,ss,t)}
+function gg(a,b,c,d,x,ss,t){return cmn((b&d)|(c&(~d)),a,b,x,ss,t)}
+function hh(a,b,c,d,x,ss,t){return cmn(b^c^d,a,b,x,ss,t)}
+function ii(a,b,c,d,x,ss,t){return cmn(c^(b|(~d)),a,b,x,ss,t)}
+function md5cycle(x,k){var a=x[0],b=x[1],c=x[2],d=x[3];
+a=ff(a,b,c,d,k[0],7,-680876936);d=ff(d,a,b,c,k[1],12,-389564586);c=ff(c,d,a,b,k[2],17,606105819);b=ff(b,c,d,a,k[3],22,-1044525330);
+a=ff(a,b,c,d,k[4],7,-176418897);d=ff(d,a,b,c,k[5],12,1200080426);c=ff(c,d,a,b,k[6],17,-1473231341);b=ff(b,c,d,a,k[7],22,-45705983);
+a=ff(a,b,c,d,k[8],7,1770035416);d=ff(d,a,b,c,k[9],12,-1958414417);c=ff(c,d,a,b,k[10],17,-42063);b=ff(b,c,d,a,k[11],22,-1990404162);
+a=ff(a,b,c,d,k[12],7,1804603682);d=ff(d,a,b,c,k[13],12,-40341101);c=ff(c,d,a,b,k[14],17,-1502002290);b=ff(b,c,d,a,k[15],22,1236535329);
+a=gg(a,b,c,d,k[1],5,-165796510);d=gg(d,a,b,c,k[6],9,-1069501632);c=gg(c,d,a,b,k[11],14,643717713);b=gg(b,c,d,a,k[0],20,-373897302);
+a=gg(a,b,c,d,k[5],5,-701558691);d=gg(d,a,b,c,k[10],9,38016083);c=gg(c,d,a,b,k[15],14,-660478335);b=gg(b,c,d,a,k[4],20,-405537848);
+a=gg(a,b,c,d,k[9],5,568446438);d=gg(d,a,b,c,k[14],9,-1019803690);c=gg(c,d,a,b,k[3],14,-187363961);b=gg(b,c,d,a,k[8],20,1163531501);
+a=gg(a,b,c,d,k[13],5,-1444681467);d=gg(d,a,b,c,k[2],9,-51403784);c=gg(c,d,a,b,k[7],14,1735328473);b=gg(b,c,d,a,k[12],20,-1926607734);
+a=hh(a,b,c,d,k[5],4,-378558);d=hh(d,a,b,c,k[8],11,-2022574463);c=hh(c,d,a,b,k[11],16,1839030562);b=hh(b,c,d,a,k[14],23,-35309556);
+a=hh(a,b,c,d,k[1],4,-1530992060);d=hh(d,a,b,c,k[4],11,1272893353);c=hh(c,d,a,b,k[7],16,-155497632);b=hh(b,c,d,a,k[10],23,-1094730640);
+a=hh(a,b,c,d,k[13],4,681279174);d=hh(d,a,b,c,k[0],11,-358537222);c=hh(c,d,a,b,k[3],16,-722521979);b=hh(b,c,d,a,k[6],23,76029189);
+a=hh(a,b,c,d,k[9],4,-640364487);d=hh(d,a,b,c,k[12],11,-421815835);c=hh(c,d,a,b,k[15],16,530742520);b=hh(b,c,d,a,k[2],23,-995338651);
+a=ii(a,b,c,d,k[0],6,-198630844);d=ii(d,a,b,c,k[7],10,1126891415);c=ii(c,d,a,b,k[14],15,-1416354905);b=ii(b,c,d,a,k[5],21,-57434055);
+a=ii(a,b,c,d,k[12],6,1700485571);d=ii(d,a,b,c,k[3],10,-1894986606);c=ii(c,d,a,b,k[10],15,-1051523);b=ii(b,c,d,a,k[1],21,-2054922799);
+a=ii(a,b,c,d,k[8],6,1873313359);d=ii(d,a,b,c,k[15],10,-30611744);c=ii(c,d,a,b,k[6],15,-1560198380);b=ii(b,c,d,a,k[13],21,1309151649);
+a=ii(a,b,c,d,k[4],6,-145523070);d=ii(d,a,b,c,k[11],10,-1120210379);c=ii(c,d,a,b,k[2],15,718787259);b=ii(b,c,d,a,k[9],21,-343485551);
+x[0]=add32(a,x[0]);x[1]=add32(b,x[1]);x[2]=add32(c,x[2]);x[3]=add32(d,x[3])}
+function md5blk(s){var o=[],i;for(i=0;i<64;i+=4)o[i>>2]=s.charCodeAt(i)+(s.charCodeAt(i+1)<<8)+(s.charCodeAt(i+2)<<16)+(s.charCodeAt(i+3)<<24);return o}
+s=utf8(s);var n=s.length,state=[1732584193,-271733879,-1732584194,271733878],i;
+for(i=64;i<=n;i+=64)md5cycle(state,md5blk(s.substring(i-64,i)));
+s=s.substring(i-64);var tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+for(i=0;i<s.length;i++)tail[i>>2]|=s.charCodeAt(i)<<((i%4)<<3);
+tail[i>>2]|=0x80<<((i%4)<<3);
+if(i>55){md5cycle(state,tail);tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}
+tail[14]=n*8;md5cycle(state,tail);
+return state.map(function(v){var o="",j;for(j=0;j<4;j++)o+=((v>>(j*8+4))&0x0F).toString(16)+((v>>(j*8))&0x0F).toString(16);return o}).join("")}
+
+// 引擎实际取前置请求 /service/timestamp 的返回值；此处用本地时间近似（服务端校验有容忍窗口）
+const ts = Math.floor(Date.now() / 1000).toString();
+const to = "+86" + request.environment.get("phone") + "";
+// 签名源按 key 升序：appid, sign_type, sign_version, timestamp, to
+const sorted = "appid=" + request.environment.get("submail_appid") + "&sign_type=MD5&sign_version=&timestamp=" + ts + "&to=" + to;
+// plain = appid + appkey + 排序串 + "&" + appid + appkey
+const plain = "" + request.environment.get("submail_appid") + "" + "" + request.environment.get("submail_appkey") + "" + sorted + "&" + "" + request.environment.get("submail_appid") + "" + "" + request.environment.get("submail_appkey") + "";
+request.variables.set("sm_ts", ts);
+request.variables.set("sm_sign", md5(plain));
+%}
+
+POST {{submail_host}}send.json
+Accept: application/json
+Content-Type: application/json
+
+{
+  "appid": "{{submail_appid}}",
+  "to": "+86{{phone}}",
+  "content": "【{{submail_sign}}】您的验证码是{{code}}，请勿泄露。",
+  "timestamp": "{{sm_ts}}",
+  "sign_type": "MD5",
+  "sign_version": "",
+  "signature": "{{sm_sign}}"
+}
+
+### 赛邮 - xsend.json 模板单发
+< {%
+function utf8(s){return encodeURIComponent(s).replace(/%([0-9A-F]{2})/g,function(m,p){return String.fromCharCode(parseInt(p,16))})}
+function add32(a,b){return(a+b)&0xFFFFFFFF}
+function md5(s){function cmn(q,a,b,x,ss,t){a=add32(add32(a,q),add32(x,t));return add32((a<<ss)|(a>>>(32-ss)),b)}
+function ff(a,b,c,d,x,ss,t){return cmn((b&c)|((~b)&d),a,b,x,ss,t)}
+function gg(a,b,c,d,x,ss,t){return cmn((b&d)|(c&(~d)),a,b,x,ss,t)}
+function hh(a,b,c,d,x,ss,t){return cmn(b^c^d,a,b,x,ss,t)}
+function ii(a,b,c,d,x,ss,t){return cmn(c^(b|(~d)),a,b,x,ss,t)}
+function md5cycle(x,k){var a=x[0],b=x[1],c=x[2],d=x[3];
+a=ff(a,b,c,d,k[0],7,-680876936);d=ff(d,a,b,c,k[1],12,-389564586);c=ff(c,d,a,b,k[2],17,606105819);b=ff(b,c,d,a,k[3],22,-1044525330);
+a=ff(a,b,c,d,k[4],7,-176418897);d=ff(d,a,b,c,k[5],12,1200080426);c=ff(c,d,a,b,k[6],17,-1473231341);b=ff(b,c,d,a,k[7],22,-45705983);
+a=ff(a,b,c,d,k[8],7,1770035416);d=ff(d,a,b,c,k[9],12,-1958414417);c=ff(c,d,a,b,k[10],17,-42063);b=ff(b,c,d,a,k[11],22,-1990404162);
+a=ff(a,b,c,d,k[12],7,1804603682);d=ff(d,a,b,c,k[13],12,-40341101);c=ff(c,d,a,b,k[14],17,-1502002290);b=ff(b,c,d,a,k[15],22,1236535329);
+a=gg(a,b,c,d,k[1],5,-165796510);d=gg(d,a,b,c,k[6],9,-1069501632);c=gg(c,d,a,b,k[11],14,643717713);b=gg(b,c,d,a,k[0],20,-373897302);
+a=gg(a,b,c,d,k[5],5,-701558691);d=gg(d,a,b,c,k[10],9,38016083);c=gg(c,d,a,b,k[15],14,-660478335);b=gg(b,c,d,a,k[4],20,-405537848);
+a=gg(a,b,c,d,k[9],5,568446438);d=gg(d,a,b,c,k[14],9,-1019803690);c=gg(c,d,a,b,k[3],14,-187363961);b=gg(b,c,d,a,k[8],20,1163531501);
+a=gg(a,b,c,d,k[13],5,-1444681467);d=gg(d,a,b,c,k[2],9,-51403784);c=gg(c,d,a,b,k[7],14,1735328473);b=gg(b,c,d,a,k[12],20,-1926607734);
+a=hh(a,b,c,d,k[5],4,-378558);d=hh(d,a,b,c,k[8],11,-2022574463);c=hh(c,d,a,b,k[11],16,1839030562);b=hh(b,c,d,a,k[14],23,-35309556);
+a=hh(a,b,c,d,k[1],4,-1530992060);d=hh(d,a,b,c,k[4],11,1272893353);c=hh(c,d,a,b,k[7],16,-155497632);b=hh(b,c,d,a,k[10],23,-1094730640);
+a=hh(a,b,c,d,k[13],4,681279174);d=hh(d,a,b,c,k[0],11,-358537222);c=hh(c,d,a,b,k[3],16,-722521979);b=hh(b,c,d,a,k[6],23,76029189);
+a=hh(a,b,c,d,k[9],4,-640364487);d=hh(d,a,b,c,k[12],11,-421815835);c=hh(c,d,a,b,k[15],16,530742520);b=hh(b,c,d,a,k[2],23,-995338651);
+a=ii(a,b,c,d,k[0],6,-198630844);d=ii(d,a,b,c,k[7],10,1126891415);c=ii(c,d,a,b,k[14],15,-1416354905);b=ii(b,c,d,a,k[5],21,-57434055);
+a=ii(a,b,c,d,k[12],6,1700485571);d=ii(d,a,b,c,k[3],10,-1894986606);c=ii(c,d,a,b,k[10],15,-1051523);b=ii(b,c,d,a,k[1],21,-2054922799);
+a=ii(a,b,c,d,k[8],6,1873313359);d=ii(d,a,b,c,k[15],10,-30611744);c=ii(c,d,a,b,k[6],15,-1560198380);b=ii(b,c,d,a,k[13],21,1309151649);
+a=ii(a,b,c,d,k[4],6,-145523070);d=ii(d,a,b,c,k[11],10,-1120210379);c=ii(c,d,a,b,k[2],15,718787259);b=ii(b,c,d,a,k[9],21,-343485551);
+x[0]=add32(a,x[0]);x[1]=add32(b,x[1]);x[2]=add32(c,x[2]);x[3]=add32(d,x[3])}
+function md5blk(s){var o=[],i;for(i=0;i<64;i+=4)o[i>>2]=s.charCodeAt(i)+(s.charCodeAt(i+1)<<8)+(s.charCodeAt(i+2)<<16)+(s.charCodeAt(i+3)<<24);return o}
+s=utf8(s);var n=s.length,state=[1732584193,-271733879,-1732584194,271733878],i;
+for(i=64;i<=n;i+=64)md5cycle(state,md5blk(s.substring(i-64,i)));
+s=s.substring(i-64);var tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+for(i=0;i<s.length;i++)tail[i>>2]|=s.charCodeAt(i)<<((i%4)<<3);
+tail[i>>2]|=0x80<<((i%4)<<3);
+if(i>55){md5cycle(state,tail);tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}
+tail[14]=n*8;md5cycle(state,tail);
+return state.map(function(v){var o="",j;for(j=0;j<4;j++)o+=((v>>(j*8+4))&0x0F).toString(16)+((v>>(j*8))&0x0F).toString(16);return o}).join("")}
+
+const ts = Math.floor(Date.now() / 1000).toString();
+const to = "+86" + request.environment.get("phone") + "";
+// 签名源按 key 升序：appid, project, sign_type, sign_version, timestamp, to
+const sorted = "appid=" + request.environment.get("submail_appid") + "&project=" + request.environment.get("submail_project") + "&sign_type=MD5&sign_version=&timestamp=" + ts + "&to=" + to;
+const plain = "" + request.environment.get("submail_appid") + "" + "" + request.environment.get("submail_appkey") + "" + sorted + "&" + "" + request.environment.get("submail_appid") + "" + "" + request.environment.get("submail_appkey") + "";
+request.variables.set("sm_ts2", ts);
+request.variables.set("sm_sign2", md5(plain));
+%}
+
+POST {{submail_host}}xsend.json
+Accept: application/json
+Content-Type: application/json
+
+{
+  "appid": "{{submail_appid}}",
+  "to": "+86{{phone}}",
+  "project": "{{submail_project}}",
+  "vars": "{\"code\":\"{{code}}\"}",
+  "timestamp": "{{sm_ts2}}",
+  "sign_type": "MD5",
+  "sign_version": "",
+  "signature": "{{sm_sign2}}"
+}
+
+
+# =====================================================================================================================
+# 10. 联麓（lianlu）— 参数按字母排序拼接 + &key=密钥，MD5 或 HMACSHA256（大写）
+#     描述文件: channels/lianlu.api.json | 成功判定: $.status == '00'
+#     此处演示默认 MD5 模式；HMACSHA256 模式改用
+#     crypto.hmac.sha256().updateWithText(plain).withTextSecret(key).digest().toHex().toUpperCase()
+# =====================================================================================================================
+
+### 联麓 - 模板短信（Type=3，SignType=MD5）
+< {%
+function utf8(s){return encodeURIComponent(s).replace(/%([0-9A-F]{2})/g,function(m,p){return String.fromCharCode(parseInt(p,16))})}
+function add32(a,b){return(a+b)&0xFFFFFFFF}
+function md5(s){function cmn(q,a,b,x,ss,t){a=add32(add32(a,q),add32(x,t));return add32((a<<ss)|(a>>>(32-ss)),b)}
+function ff(a,b,c,d,x,ss,t){return cmn((b&c)|((~b)&d),a,b,x,ss,t)}
+function gg(a,b,c,d,x,ss,t){return cmn((b&d)|(c&(~d)),a,b,x,ss,t)}
+function hh(a,b,c,d,x,ss,t){return cmn(b^c^d,a,b,x,ss,t)}
+function ii(a,b,c,d,x,ss,t){return cmn(c^(b|(~d)),a,b,x,ss,t)}
+function md5cycle(x,k){var a=x[0],b=x[1],c=x[2],d=x[3];
+a=ff(a,b,c,d,k[0],7,-680876936);d=ff(d,a,b,c,k[1],12,-389564586);c=ff(c,d,a,b,k[2],17,606105819);b=ff(b,c,d,a,k[3],22,-1044525330);
+a=ff(a,b,c,d,k[4],7,-176418897);d=ff(d,a,b,c,k[5],12,1200080426);c=ff(c,d,a,b,k[6],17,-1473231341);b=ff(b,c,d,a,k[7],22,-45705983);
+a=ff(a,b,c,d,k[8],7,1770035416);d=ff(d,a,b,c,k[9],12,-1958414417);c=ff(c,d,a,b,k[10],17,-42063);b=ff(b,c,d,a,k[11],22,-1990404162);
+a=ff(a,b,c,d,k[12],7,1804603682);d=ff(d,a,b,c,k[13],12,-40341101);c=ff(c,d,a,b,k[14],17,-1502002290);b=ff(b,c,d,a,k[15],22,1236535329);
+a=gg(a,b,c,d,k[1],5,-165796510);d=gg(d,a,b,c,k[6],9,-1069501632);c=gg(c,d,a,b,k[11],14,643717713);b=gg(b,c,d,a,k[0],20,-373897302);
+a=gg(a,b,c,d,k[5],5,-701558691);d=gg(d,a,b,c,k[10],9,38016083);c=gg(c,d,a,b,k[15],14,-660478335);b=gg(b,c,d,a,k[4],20,-405537848);
+a=gg(a,b,c,d,k[9],5,568446438);d=gg(d,a,b,c,k[14],9,-1019803690);c=gg(c,d,a,b,k[3],14,-187363961);b=gg(b,c,d,a,k[8],20,1163531501);
+a=gg(a,b,c,d,k[13],5,-1444681467);d=gg(d,a,b,c,k[2],9,-51403784);c=gg(c,d,a,b,k[7],14,1735328473);b=gg(b,c,d,a,k[12],20,-1926607734);
+a=hh(a,b,c,d,k[5],4,-378558);d=hh(d,a,b,c,k[8],11,-2022574463);c=hh(c,d,a,b,k[11],16,1839030562);b=hh(b,c,d,a,k[14],23,-35309556);
+a=hh(a,b,c,d,k[1],4,-1530992060);d=hh(d,a,b,c,k[4],11,1272893353);c=hh(c,d,a,b,k[7],16,-155497632);b=hh(b,c,d,a,k[10],23,-1094730640);
+a=hh(a,b,c,d,k[13],4,681279174);d=hh(d,a,b,c,k[0],11,-358537222);c=hh(c,d,a,b,k[3],16,-722521979);b=hh(b,c,d,a,k[6],23,76029189);
+a=hh(a,b,c,d,k[9],4,-640364487);d=hh(d,a,b,c,k[12],11,-421815835);c=hh(c,d,a,b,k[15],16,530742520);b=hh(b,c,d,a,k[2],23,-995338651);
+a=ii(a,b,c,d,k[0],6,-198630844);d=ii(d,a,b,c,k[7],10,1126891415);c=ii(c,d,a,b,k[14],15,-1416354905);b=ii(b,c,d,a,k[5],21,-57434055);
+a=ii(a,b,c,d,k[12],6,1700485571);d=ii(d,a,b,c,k[3],10,-1894986606);c=ii(c,d,a,b,k[10],15,-1051523);b=ii(b,c,d,a,k[1],21,-2054922799);
+a=ii(a,b,c,d,k[8],6,1873313359);d=ii(d,a,b,c,k[15],10,-30611744);c=ii(c,d,a,b,k[6],15,-1560198380);b=ii(b,c,d,a,k[13],21,1309151649);
+a=ii(a,b,c,d,k[4],6,-145523070);d=ii(d,a,b,c,k[11],10,-1120210379);c=ii(c,d,a,b,k[2],15,718787259);b=ii(b,c,d,a,k[9],21,-343485551);
+x[0]=add32(a,x[0]);x[1]=add32(b,x[1]);x[2]=add32(c,x[2]);x[3]=add32(d,x[3])}
+function md5blk(s){var o=[],i;for(i=0;i<64;i+=4)o[i>>2]=s.charCodeAt(i)+(s.charCodeAt(i+1)<<8)+(s.charCodeAt(i+2)<<16)+(s.charCodeAt(i+3)<<24);return o}
+s=utf8(s);var n=s.length,state=[1732584193,-271733879,-1732584194,271733878],i;
+for(i=64;i<=n;i+=64)md5cycle(state,md5blk(s.substring(i-64,i)));
+s=s.substring(i-64);var tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+for(i=0;i<s.length;i++)tail[i>>2]|=s.charCodeAt(i)<<((i%4)<<3);
+tail[i>>2]|=0x80<<((i%4)<<3);
+if(i>55){md5cycle(state,tail);tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}
+tail[14]=n*8;md5cycle(state,tail);
+return state.map(function(v){var o="",j;for(j=0;j<4;j++)o+=((v>>(j*8+4))&0x0F).toString(16)+((v>>(j*8))&0x0F).toString(16);return o}).join("")}
+
+const ts = Date.now().toString();
+// 待签名参数按 key 升序：AppId, MchId, SignName, SignType, TemplateId, TimeStamp, Type, Version
+const sorted = "AppId=" + request.environment.get("lianlu_app_id") + "&MchId=" + request.environment.get("lianlu_mch_id") + "&SignName=" + request.environment.get("lianlu_sign") + "&SignType=MD5"
+  + "&TemplateId=" + request.environment.get("lianlu_tpl_id") + "&TimeStamp=" + ts + "&Type=3&Version=1.1.0";
+// plain = 排序串 + &key=密钥；Signature = UPPER(MD5(plain))
+request.variables.set("ll_ts", ts);
+request.variables.set("ll_sign", md5(sorted + "&key=" + request.environment.get("lianlu_app_key") + "").toUpperCase());
+%}
+
+POST {{lianlu_url}}/template/send
+Content-Type: application/json;charset=utf-8
+Accept: application/json
+
+{
+  "MchId": "{{lianlu_mch_id}}",
+  "AppId": "{{lianlu_app_id}}",
+  "Version": "1.1.0",
+  "Type": "3",
+  "SignType": "MD5",
+  "TimeStamp": "{{ll_ts}}",
+  "TemplateId": "{{lianlu_tpl_id}}",
+  "SignName": "{{lianlu_sign}}",
+  "PhoneNumberSet": ["{{phone}}"],
+  "TemplateParamSet": ["{{code}}"],
+  "Signature": "{{ll_sign}}"
+}
+
+
+# =====================================================================================================================
+# 11. 梦网（montnets）— pwd = MD5(UPPER(userid) + "00000000" + 密码 + MMddHHmmss)；变量双重 URL 编码
+#     描述文件: channels/montnets.api.json | 成功判定: $.result == '0'
+# =====================================================================================================================
+
+### 梦网 - 模板短信
+< {%
+function utf8(s){return encodeURIComponent(s).replace(/%([0-9A-F]{2})/g,function(m,p){return String.fromCharCode(parseInt(p,16))})}
+function add32(a,b){return(a+b)&0xFFFFFFFF}
+function md5(s){function cmn(q,a,b,x,ss,t){a=add32(add32(a,q),add32(x,t));return add32((a<<ss)|(a>>>(32-ss)),b)}
+function ff(a,b,c,d,x,ss,t){return cmn((b&c)|((~b)&d),a,b,x,ss,t)}
+function gg(a,b,c,d,x,ss,t){return cmn((b&d)|(c&(~d)),a,b,x,ss,t)}
+function hh(a,b,c,d,x,ss,t){return cmn(b^c^d,a,b,x,ss,t)}
+function ii(a,b,c,d,x,ss,t){return cmn(c^(b|(~d)),a,b,x,ss,t)}
+function md5cycle(x,k){var a=x[0],b=x[1],c=x[2],d=x[3];
+a=ff(a,b,c,d,k[0],7,-680876936);d=ff(d,a,b,c,k[1],12,-389564586);c=ff(c,d,a,b,k[2],17,606105819);b=ff(b,c,d,a,k[3],22,-1044525330);
+a=ff(a,b,c,d,k[4],7,-176418897);d=ff(d,a,b,c,k[5],12,1200080426);c=ff(c,d,a,b,k[6],17,-1473231341);b=ff(b,c,d,a,k[7],22,-45705983);
+a=ff(a,b,c,d,k[8],7,1770035416);d=ff(d,a,b,c,k[9],12,-1958414417);c=ff(c,d,a,b,k[10],17,-42063);b=ff(b,c,d,a,k[11],22,-1990404162);
+a=ff(a,b,c,d,k[12],7,1804603682);d=ff(d,a,b,c,k[13],12,-40341101);c=ff(c,d,a,b,k[14],17,-1502002290);b=ff(b,c,d,a,k[15],22,1236535329);
+a=gg(a,b,c,d,k[1],5,-165796510);d=gg(d,a,b,c,k[6],9,-1069501632);c=gg(c,d,a,b,k[11],14,643717713);b=gg(b,c,d,a,k[0],20,-373897302);
+a=gg(a,b,c,d,k[5],5,-701558691);d=gg(d,a,b,c,k[10],9,38016083);c=gg(c,d,a,b,k[15],14,-660478335);b=gg(b,c,d,a,k[4],20,-405537848);
+a=gg(a,b,c,d,k[9],5,568446438);d=gg(d,a,b,c,k[14],9,-1019803690);c=gg(c,d,a,b,k[3],14,-187363961);b=gg(b,c,d,a,k[8],20,1163531501);
+a=gg(a,b,c,d,k[13],5,-1444681467);d=gg(d,a,b,c,k[2],9,-51403784);c=gg(c,d,a,b,k[7],14,1735328473);b=gg(b,c,d,a,k[12],20,-1926607734);
+a=hh(a,b,c,d,k[5],4,-378558);d=hh(d,a,b,c,k[8],11,-2022574463);c=hh(c,d,a,b,k[11],16,1839030562);b=hh(b,c,d,a,k[14],23,-35309556);
+a=hh(a,b,c,d,k[1],4,-1530992060);d=hh(d,a,b,c,k[4],11,1272893353);c=hh(c,d,a,b,k[7],16,-155497632);b=hh(b,c,d,a,k[10],23,-1094730640);
+a=hh(a,b,c,d,k[13],4,681279174);d=hh(d,a,b,c,k[0],11,-358537222);c=hh(c,d,a,b,k[3],16,-722521979);b=hh(b,c,d,a,k[6],23,76029189);
+a=hh(a,b,c,d,k[9],4,-640364487);d=hh(d,a,b,c,k[12],11,-421815835);c=hh(c,d,a,b,k[15],16,530742520);b=hh(b,c,d,a,k[2],23,-995338651);
+a=ii(a,b,c,d,k[0],6,-198630844);d=ii(d,a,b,c,k[7],10,1126891415);c=ii(c,d,a,b,k[14],15,-1416354905);b=ii(b,c,d,a,k[5],21,-57434055);
+a=ii(a,b,c,d,k[12],6,1700485571);d=ii(d,a,b,c,k[3],10,-1894986606);c=ii(c,d,a,b,k[10],15,-1051523);b=ii(b,c,d,a,k[1],21,-2054922799);
+a=ii(a,b,c,d,k[8],6,1873313359);d=ii(d,a,b,c,k[15],10,-30611744);c=ii(c,d,a,b,k[6],15,-1560198380);b=ii(b,c,d,a,k[13],21,1309151649);
+a=ii(a,b,c,d,k[4],6,-145523070);d=ii(d,a,b,c,k[11],10,-1120210379);c=ii(c,d,a,b,k[2],15,718787259);b=ii(b,c,d,a,k[9],21,-343485551);
+x[0]=add32(a,x[0]);x[1]=add32(b,x[1]);x[2]=add32(c,x[2]);x[3]=add32(d,x[3])}
+function md5blk(s){var o=[],i;for(i=0;i<64;i+=4)o[i>>2]=s.charCodeAt(i)+(s.charCodeAt(i+1)<<8)+(s.charCodeAt(i+2)<<16)+(s.charCodeAt(i+3)<<24);return o}
+s=utf8(s);var n=s.length,state=[1732584193,-271733879,-1732584194,271733878],i;
+for(i=64;i<=n;i+=64)md5cycle(state,md5blk(s.substring(i-64,i)));
+s=s.substring(i-64);var tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+for(i=0;i<s.length;i++)tail[i>>2]|=s.charCodeAt(i)<<((i%4)<<3);
+tail[i>>2]|=0x80<<((i%4)<<3);
+if(i>55){md5cycle(state,tail);tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}
+tail[14]=n*8;md5cycle(state,tail);
+return state.map(function(v){var o="",j;for(j=0;j<4;j++)o+=((v>>(j*8+4))&0x0F).toString(16)+((v>>(j*8))&0x0F).toString(16);return o}).join("")}
+
+function pad(n){return n<10?"0"+n:""+n}
+const d = new Date();   // 引擎按 Asia/Shanghai 时区取时间戳
+const ts = pad(d.getMonth()+1) + pad(d.getDate()) + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
+// pwd = md5(UPPER(userid) + "00000000" + 密码 + MMddHHmmss)
+request.variables.set("mw_ts", ts);
+request.variables.set("mw_pwd", md5(request.environment.get("montnets_userid").toUpperCase() + "00000000" + request.environment.get("montnets_secret") + ts));
+// content：变量 kv 串再做一次 URL 编码（双重编码，与引擎一致）
+request.variables.set("mw_content", encodeURIComponent("code=" + encodeURIComponent(request.environment.get("code"))));
+%}
+
+POST {{montnets_url}}{{montnets_api}}
+Content-Type: application/json;charset=utf-8
+
+{
+  "userid": "{{montnets_userid}}",
+  "pwd": "{{mw_pwd}}",
+  "timestamp": "{{mw_ts}}",
+  "mobile": "{{phone}}",
+  "content": "{{mw_content}}",
+  "tmplid": "{{montnets_tpl_id}}"
+}
+
+
+# =====================================================================================================================
+# 12. 亿美软通（emay）— sign = MD5(appId + secretKey + yyyyMMddHHmmss)，参数全部走 URL 查询串
+#     描述文件: channels/emay.api.json | 成功判定: lower($.code) == 'success'
+# =====================================================================================================================
+
+### 亿美 - 自定义内容发送（参数在 query，无请求体）
+< {%
+function utf8(s){return encodeURIComponent(s).replace(/%([0-9A-F]{2})/g,function(m,p){return String.fromCharCode(parseInt(p,16))})}
+function add32(a,b){return(a+b)&0xFFFFFFFF}
+function md5(s){function cmn(q,a,b,x,ss,t){a=add32(add32(a,q),add32(x,t));return add32((a<<ss)|(a>>>(32-ss)),b)}
+function ff(a,b,c,d,x,ss,t){return cmn((b&c)|((~b)&d),a,b,x,ss,t)}
+function gg(a,b,c,d,x,ss,t){return cmn((b&d)|(c&(~d)),a,b,x,ss,t)}
+function hh(a,b,c,d,x,ss,t){return cmn(b^c^d,a,b,x,ss,t)}
+function ii(a,b,c,d,x,ss,t){return cmn(c^(b|(~d)),a,b,x,ss,t)}
+function md5cycle(x,k){var a=x[0],b=x[1],c=x[2],d=x[3];
+a=ff(a,b,c,d,k[0],7,-680876936);d=ff(d,a,b,c,k[1],12,-389564586);c=ff(c,d,a,b,k[2],17,606105819);b=ff(b,c,d,a,k[3],22,-1044525330);
+a=ff(a,b,c,d,k[4],7,-176418897);d=ff(d,a,b,c,k[5],12,1200080426);c=ff(c,d,a,b,k[6],17,-1473231341);b=ff(b,c,d,a,k[7],22,-45705983);
+a=ff(a,b,c,d,k[8],7,1770035416);d=ff(d,a,b,c,k[9],12,-1958414417);c=ff(c,d,a,b,k[10],17,-42063);b=ff(b,c,d,a,k[11],22,-1990404162);
+a=ff(a,b,c,d,k[12],7,1804603682);d=ff(d,a,b,c,k[13],12,-40341101);c=ff(c,d,a,b,k[14],17,-1502002290);b=ff(b,c,d,a,k[15],22,1236535329);
+a=gg(a,b,c,d,k[1],5,-165796510);d=gg(d,a,b,c,k[6],9,-1069501632);c=gg(c,d,a,b,k[11],14,643717713);b=gg(b,c,d,a,k[0],20,-373897302);
+a=gg(a,b,c,d,k[5],5,-701558691);d=gg(d,a,b,c,k[10],9,38016083);c=gg(c,d,a,b,k[15],14,-660478335);b=gg(b,c,d,a,k[4],20,-405537848);
+a=gg(a,b,c,d,k[9],5,568446438);d=gg(d,a,b,c,k[14],9,-1019803690);c=gg(c,d,a,b,k[3],14,-187363961);b=gg(b,c,d,a,k[8],20,1163531501);
+a=gg(a,b,c,d,k[13],5,-1444681467);d=gg(d,a,b,c,k[2],9,-51403784);c=gg(c,d,a,b,k[7],14,1735328473);b=gg(b,c,d,a,k[12],20,-1926607734);
+a=hh(a,b,c,d,k[5],4,-378558);d=hh(d,a,b,c,k[8],11,-2022574463);c=hh(c,d,a,b,k[11],16,1839030562);b=hh(b,c,d,a,k[14],23,-35309556);
+a=hh(a,b,c,d,k[1],4,-1530992060);d=hh(d,a,b,c,k[4],11,1272893353);c=hh(c,d,a,b,k[7],16,-155497632);b=hh(b,c,d,a,k[10],23,-1094730640);
+a=hh(a,b,c,d,k[13],4,681279174);d=hh(d,a,b,c,k[0],11,-358537222);c=hh(c,d,a,b,k[3],16,-722521979);b=hh(b,c,d,a,k[6],23,76029189);
+a=hh(a,b,c,d,k[9],4,-640364487);d=hh(d,a,b,c,k[12],11,-421815835);c=hh(c,d,a,b,k[15],16,530742520);b=hh(b,c,d,a,k[2],23,-995338651);
+a=ii(a,b,c,d,k[0],6,-198630844);d=ii(d,a,b,c,k[7],10,1126891415);c=ii(c,d,a,b,k[14],15,-1416354905);b=ii(b,c,d,a,k[5],21,-57434055);
+a=ii(a,b,c,d,k[12],6,1700485571);d=ii(d,a,b,c,k[3],10,-1894986606);c=ii(c,d,a,b,k[10],15,-1051523);b=ii(b,c,d,a,k[1],21,-2054922799);
+a=ii(a,b,c,d,k[8],6,1873313359);d=ii(d,a,b,c,k[15],10,-30611744);c=ii(c,d,a,b,k[6],15,-1560198380);b=ii(b,c,d,a,k[13],21,1309151649);
+a=ii(a,b,c,d,k[4],6,-145523070);d=ii(d,a,b,c,k[11],10,-1120210379);c=ii(c,d,a,b,k[2],15,718787259);b=ii(b,c,d,a,k[9],21,-343485551);
+x[0]=add32(a,x[0]);x[1]=add32(b,x[1]);x[2]=add32(c,x[2]);x[3]=add32(d,x[3])}
+function md5blk(s){var o=[],i;for(i=0;i<64;i+=4)o[i>>2]=s.charCodeAt(i)+(s.charCodeAt(i+1)<<8)+(s.charCodeAt(i+2)<<16)+(s.charCodeAt(i+3)<<24);return o}
+s=utf8(s);var n=s.length,state=[1732584193,-271733879,-1732584194,271733878],i;
+for(i=64;i<=n;i+=64)md5cycle(state,md5blk(s.substring(i-64,i)));
+s=s.substring(i-64);var tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+for(i=0;i<s.length;i++)tail[i>>2]|=s.charCodeAt(i)<<((i%4)<<3);
+tail[i>>2]|=0x80<<((i%4)<<3);
+if(i>55){md5cycle(state,tail);tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}
+tail[14]=n*8;md5cycle(state,tail);
+return state.map(function(v){var o="",j;for(j=0;j<4;j++)o+=((v>>(j*8+4))&0x0F).toString(16)+((v>>(j*8))&0x0F).toString(16);return o}).join("")}
+
+function pad(n){return n<10?"0"+n:""+n}
+const d = new Date();   // 引擎按 Asia/Shanghai 时区取时间戳
+const ts = "" + d.getFullYear() + pad(d.getMonth()+1) + pad(d.getDate()) + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
+// sign = md5(appId + secretKey + 时间戳)
+request.variables.set("em_ts", ts);
+request.variables.set("em_sign", md5("" + request.environment.get("emay_app_id") + "" + "" + request.environment.get("emay_secret") + "" + ts));
+request.variables.set("em_content", encodeURIComponent("" + request.environment.get("emay_message") + ""));
+%}
+
+POST {{emay_url}}?appId={{emay_app_id}}&timestamp={{em_ts}}&sign={{em_sign}}&mobiles={{phone}}&content={{em_content}}
+Content-Type: application/x-www-form-urlencoded
+
+
+# =====================================================================================================================
+# 13. 互亿无线（huyi）— GET 提交；此处为明文密码模式（描述文件 enableMd5 默认 false）
+#     描述文件: channels/huyi.api.json | 成功判定: $.code == '2'
+#     若开启 MD5：password = md5(account+password+mobile+content+time)，并追加 time 参数
+# =====================================================================================================================
+
+### 互亿 - 单发（GET，明文密码；content 已按"【您的签名】验证码：xxxx，请勿泄露。"URL 编码）
+GET https://106.ihuyi.com/webservice/sms.php?method=Submit&Content-Type=application/x-www-form-urlencoded&format=json&account={{huyi_account}}&password={{huyi_password}}&content=%E3%80%90%E6%82%A8%E7%9A%84%E7%AD%BE%E5%90%8D%E3%80%91%E9%AA%8C%E8%AF%81%E7%A0%81%EF%BC%9A{{code}}%EF%BC%8C%E8%AF%B7%E5%8B%BF%E6%B3%84%E9%9C%B2%E3%80%82&mobile={{phone}}&templateid={{huyi_tpl_id}}
+
+
+# =====================================================================================================================
+# 14. 螺丝帽（luosimao）— Basic Auth（user=api, pwd=key-密钥）
+#     描述文件: channels/luosimao.api.json | 成功判定: $.error == 0
+# =====================================================================================================================
+
+### 螺丝帽 - 发送
+< {%
+// Authorization: Basic base64("api:key-" + API密钥)
+request.variables.set("ls_auth", "Basic " + btoa("api:key-" + request.environment.get("luosimao_key") + ""));
+request.variables.set("ls_msg", encodeURIComponent("【您的签名】验证码：" + request.environment.get("code") + "，请勿泄露。"));
+%}
+
+POST {{luosimao_host}}send.json
+Content-Type: application/x-www-form-urlencoded
+Authorization: {{ls_auth}}
+
+mobile={{phone}}&message={{ls_msg}}
+
+### 螺丝帽 - 余额查询
+< {%
+request.variables.set("ls_auth2", "Basic " + btoa("api:key-" + request.environment.get("luosimao_key") + ""));
+%}
+
+GET {{luosimao_host}}status.json
+Authorization: {{ls_auth2}}
+
+
+# =====================================================================================================================
+# 15. 极光（jg）— HTTP Basic Auth(appKey:masterSecret)
+#     描述文件: channels/jg.api.json | 成功判定: $.msg_id != null（单发）/ $.success_count != null（批量）
+# =====================================================================================================================
+
+### 极光 - 单条模板短信
+< {%
+request.variables.set("jg_auth", "Basic " + btoa("" + request.environment.get("jg_app_key") + ":" + request.environment.get("jg_master_secret") + ""));
+%}
+
+POST {{jg_url}}messages
+Accept: application/json
+Content-Type: application/json;charset=utf-8
+Authorization: {{jg_auth}}
+
+{
+  "mobile": "{{phone}}",
+  "sign_id": "{{jg_sign_id}}",
+  "temp_id": "{{jg_tpl_id}}",
+  "temp_para": { "code": "{{code}}" }
+}
+
+### 极光 - 批量模板短信（号码补 +86）
+< {%
+request.variables.set("jg_auth2", "Basic " + btoa("" + request.environment.get("jg_app_key") + ":" + request.environment.get("jg_master_secret") + ""));
+%}
+
+POST {{jg_url}}messages/batch
+Accept: application/json
+Content-Type: application/json;charset=utf-8
+Authorization: {{jg_auth2}}
+
+{
+  "sign_id": "{{jg_sign_id}}",
+  "temp_id": "{{jg_tpl_id}}",
+  "recipients": [
+    { "mobile": "+86{{phone}}", "temp_para": { "code": "{{code}}" } },
+    { "mobile": "+86{{phone2}}", "temp_para": { "code": "{{code}}" } }
+  ]
+}
+
+
+# =====================================================================================================================
+# 16. 联通一信通（yixintong）— GBK 表单、20 位流水号；响应为文本（含 result=0& 即成功）
+#     描述文件: channels/yixintong.api.json
+#     注意：引擎按 GBK 编码表单（body.charset=gbk）；HTTP Client 以 UTF-8 发送，
+#     中文内容在厂商侧可能乱码，仅用于链路连通性验证，精确编码以引擎为准。
+# =====================================================================================================================
+
+### 一信通 - 发送（20 位流水号由脚本生成）
+< {%
+request.variables.set("yxt_serial", Date.now().toString() + ("0000000" + Math.floor(Math.random() * 1e7)).slice(-7));
+request.variables.set("yxt_msg", encodeURIComponent("【您的签名】验证码：" + request.environment.get("code") + "，请勿泄露。"));
+%}
+
+POST {{yixintong_url}}
+Content-Type: application/x-www-form-urlencoded; charset=gbk
+
+SpCode={{yixintong_sp_code}}&LoginName={{yixintong_login}}&Password={{yixintong_password}}&MessageContent={{yxt_msg}}&UserNumber={{phone}}&templateId={{yixintong_tpl_id}}&SerialNumber={{yxt_serial}}&ScheduleTime=&f=1&signCode={{yixintong_sign_code}}
+
+
+# =====================================================================================================================
+# 17. 布丁云V2（budingyun）— 明文 key、form body，仅自定义短信；群发为逐条扇出（此处单发）
+#     描述文件: channels/budingyun.api.json | 成功判定: $.bool == true
+# =====================================================================================================================
+
+### 布丁云 - 发送（配置了 signKey 时不提交 sign 字段；此处演示明文签名模式）
+< {%
+request.variables.set("bd_content", encodeURIComponent("" + request.environment.get("budingyun_message") + ""));
+%}
+
+POST {{budingyun_url}}/Api/Sent
+Accept: application/json;charset=utf-8
+Content-Type: application/x-www-form-urlencoded
+
+key={{budingyun_key}}&to={{phone}}&content={{bd_content}}&sign={{budingyun_sign}}
+
+
+# =====================================================================================================================
+# 18. 旦米（danmi）— sig = MD5(accountSid + authToken + 毫秒时间戳)
+#     描述文件: channels/danmi.api.json | 成功判定: $.respCode == '00000'
+# =====================================================================================================================
+
+### 旦米 - 短信发送
+< {%
+function utf8(s){return encodeURIComponent(s).replace(/%([0-9A-F]{2})/g,function(m,p){return String.fromCharCode(parseInt(p,16))})}
+function add32(a,b){return(a+b)&0xFFFFFFFF}
+function md5(s){function cmn(q,a,b,x,ss,t){a=add32(add32(a,q),add32(x,t));return add32((a<<ss)|(a>>>(32-ss)),b)}
+function ff(a,b,c,d,x,ss,t){return cmn((b&c)|((~b)&d),a,b,x,ss,t)}
+function gg(a,b,c,d,x,ss,t){return cmn((b&d)|(c&(~d)),a,b,x,ss,t)}
+function hh(a,b,c,d,x,ss,t){return cmn(b^c^d,a,b,x,ss,t)}
+function ii(a,b,c,d,x,ss,t){return cmn(c^(b|(~d)),a,b,x,ss,t)}
+function md5cycle(x,k){var a=x[0],b=x[1],c=x[2],d=x[3];
+a=ff(a,b,c,d,k[0],7,-680876936);d=ff(d,a,b,c,k[1],12,-389564586);c=ff(c,d,a,b,k[2],17,606105819);b=ff(b,c,d,a,k[3],22,-1044525330);
+a=ff(a,b,c,d,k[4],7,-176418897);d=ff(d,a,b,c,k[5],12,1200080426);c=ff(c,d,a,b,k[6],17,-1473231341);b=ff(b,c,d,a,k[7],22,-45705983);
+a=ff(a,b,c,d,k[8],7,1770035416);d=ff(d,a,b,c,k[9],12,-1958414417);c=ff(c,d,a,b,k[10],17,-42063);b=ff(b,c,d,a,k[11],22,-1990404162);
+a=ff(a,b,c,d,k[12],7,1804603682);d=ff(d,a,b,c,k[13],12,-40341101);c=ff(c,d,a,b,k[14],17,-1502002290);b=ff(b,c,d,a,k[15],22,1236535329);
+a=gg(a,b,c,d,k[1],5,-165796510);d=gg(d,a,b,c,k[6],9,-1069501632);c=gg(c,d,a,b,k[11],14,643717713);b=gg(b,c,d,a,k[0],20,-373897302);
+a=gg(a,b,c,d,k[5],5,-701558691);d=gg(d,a,b,c,k[10],9,38016083);c=gg(c,d,a,b,k[15],14,-660478335);b=gg(b,c,d,a,k[4],20,-405537848);
+a=gg(a,b,c,d,k[9],5,568446438);d=gg(d,a,b,c,k[14],9,-1019803690);c=gg(c,d,a,b,k[3],14,-187363961);b=gg(b,c,d,a,k[8],20,1163531501);
+a=gg(a,b,c,d,k[13],5,-1444681467);d=gg(d,a,b,c,k[2],9,-51403784);c=gg(c,d,a,b,k[7],14,1735328473);b=gg(b,c,d,a,k[12],20,-1926607734);
+a=hh(a,b,c,d,k[5],4,-378558);d=hh(d,a,b,c,k[8],11,-2022574463);c=hh(c,d,a,b,k[11],16,1839030562);b=hh(b,c,d,a,k[14],23,-35309556);
+a=hh(a,b,c,d,k[1],4,-1530992060);d=hh(d,a,b,c,k[4],11,1272893353);c=hh(c,d,a,b,k[7],16,-155497632);b=hh(b,c,d,a,k[10],23,-1094730640);
+a=hh(a,b,c,d,k[13],4,681279174);d=hh(d,a,b,c,k[0],11,-358537222);c=hh(c,d,a,b,k[3],16,-722521979);b=hh(b,c,d,a,k[6],23,76029189);
+a=hh(a,b,c,d,k[9],4,-640364487);d=hh(d,a,b,c,k[12],11,-421815835);c=hh(c,d,a,b,k[15],16,530742520);b=hh(b,c,d,a,k[2],23,-995338651);
+a=ii(a,b,c,d,k[0],6,-198630844);d=ii(d,a,b,c,k[7],10,1126891415);c=ii(c,d,a,b,k[14],15,-1416354905);b=ii(b,c,d,a,k[5],21,-57434055);
+a=ii(a,b,c,d,k[12],6,1700485571);d=ii(d,a,b,c,k[3],10,-1894986606);c=ii(c,d,a,b,k[10],15,-1051523);b=ii(b,c,d,a,k[1],21,-2054922799);
+a=ii(a,b,c,d,k[8],6,1873313359);d=ii(d,a,b,c,k[15],10,-30611744);c=ii(c,d,a,b,k[6],15,-1560198380);b=ii(b,c,d,a,k[13],21,1309151649);
+a=ii(a,b,c,d,k[4],6,-145523070);d=ii(d,a,b,c,k[11],10,-1120210379);c=ii(c,d,a,b,k[2],15,718787259);b=ii(b,c,d,a,k[9],21,-343485551);
+x[0]=add32(a,x[0]);x[1]=add32(b,x[1]);x[2]=add32(c,x[2]);x[3]=add32(d,x[3])}
+function md5blk(s){var o=[],i;for(i=0;i<64;i+=4)o[i>>2]=s.charCodeAt(i)+(s.charCodeAt(i+1)<<8)+(s.charCodeAt(i+2)<<16)+(s.charCodeAt(i+3)<<24);return o}
+s=utf8(s);var n=s.length,state=[1732584193,-271733879,-1732584194,271733878],i;
+for(i=64;i<=n;i+=64)md5cycle(state,md5blk(s.substring(i-64,i)));
+s=s.substring(i-64);var tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+for(i=0;i<s.length;i++)tail[i>>2]|=s.charCodeAt(i)<<((i%4)<<3);
+tail[i>>2]|=0x80<<((i%4)<<3);
+if(i>55){md5cycle(state,tail);tail=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}
+tail[14]=n*8;md5cycle(state,tail);
+return state.map(function(v){var o="",j;for(j=0;j<4;j++)o+=((v>>(j*8+4))&0x0F).toString(16)+((v>>(j*8))&0x0F).toString(16);return o}).join("")}
+
+const ts = Date.now();
+// sig = md5(accountSid + authToken + 毫秒时间戳)
+request.variables.set("dm_ts", ts.toString());
+request.variables.set("dm_sig", md5("" + request.environment.get("danmi_sid") + "" + "" + request.environment.get("danmi_token") + "" + ts));
+request.variables.set("dm_content", encodeURIComponent("【您的签名】验证码：" + request.environment.get("code") + "，请勿泄露。"));
+%}
+
+POST {{danmi_host}}distributor/sendSMS
+Content-Type: application/json
+
+{
+  "respDataType": "JSON",
+  "accountSid": "{{danmi_sid}}",
+  "templateid": "{{danmi_tpl_id}}",
+  "smsContent": "{{dm_content}}",
+  "to": ["+86{{phone}}"],
+  "timestamp": "{{dm_ts}}",
+  "sig": "{{dm_sig}}"
+}
+
+
+# =====================================================================================================================
+# 19. 鼎众（dingzhong）— 明文凭证 form 提交；普通/模板双 action
+#     描述文件: channels/dingzhong.api.json | 成功判定: $.resCode == '0'
+# =====================================================================================================================
+
+### 鼎众 - 自定义短信（Sms/SendSms）
+< {%
+request.variables.set("dz_msg", encodeURIComponent("【您的签名】验证码：" + request.environment.get("code") + "，请勿泄露。"));
+%}
+
+POST {{dingzhong_url}}/Sms/SendSms
+Accept: application/json
+Content-Type: application/x-www-form-urlencoded
+
+cdkey={{dingzhong_cdkey}}&password={{dingzhong_password}}&mobile={{phone}}&msg={{dz_msg}}
+
+### 鼎众 - 模板短信（Sms/SendTemplateSms，msgParam 为 JSON 对象字符串）
+< {%
+request.variables.set("dz_param", encodeURIComponent(JSON.stringify({ code: "" + request.environment.get("code") + "" })));
+%}
+
+POST {{dingzhong_url}}/Sms/SendTemplateSms
+Accept: application/json
+Content-Type: application/x-www-form-urlencoded
+
+cdkey={{dingzhong_cdkey}}&password={{dingzhong_password}}&mobile={{phone}}&templateId={{dingzhong_tpl_id}}&msgParam={{dz_param}}

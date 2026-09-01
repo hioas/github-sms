@@ -1,0 +1,197 @@
+{
+  "schema": "hioas-api/1.0",
+  "channel": "submail",
+  "title": "赛邮云",
+  "description": "B 级：前置请求获取服务端时间戳；签名 = appid+secret+排序参数+appid+secret 的 MD5/SHA1",
+  "protocol": "http",
+  "config": {
+    "fields": {
+      "host": { "type": "string", "default": "https://api-v4.mysubmail.com/sms/", "patternEndsWith": "/" },
+      "accessKeyId": { "type": "string", "required": true, "label": "appid" },
+      "accessKeySecret": { "type": "string", "required": true, "label": "appkey", "sensitive": true },
+      "signature": { "type": "string", "label": "短信签名（自动包裹【】置于内容前）" },
+      "signType": { "type": "string", "default": "MD5", "description": "MD5 | SHA1 | 其他值则明文密钥" },
+      "signVersion": { "type": "string", "description": "签名版本，2 时按排除字段排序签名" },
+      "templateId": { "type": "string" }
+    }
+  },
+  "preRequests": {
+    "serverTime": {
+      "request": { "method": "GET", "url": "https://api-v4.mysubmail.com/service/timestamp" },
+      "response": { "capture": { "ts": "$.timestamp" } }
+    }
+  },
+  "operations": {
+    "send": {
+      "description": "send.json 自定义内容单发",
+      "derive": {
+        "to": "${join(ensurePrefix(phones, '+86'), '')}",
+        "content": "${if(isBlank(config.signature), message, '【' + config.signature + '】' + message)}",
+        "signSource": {
+          "appid": "${config.accessKeyId}",
+          "to": "${derive.to}",
+          "timestamp": "${pre.serverTime.ts}",
+          "sign_type": "${config.signType}",
+          "sign_version": "${config.signVersion}"
+        },
+        "plain": "${config.accessKeyId + config.accessKeySecret + sortedQueryString(derive.signSource, 'none') + '&' + config.accessKeyId + config.accessKeySecret}",
+        "signature": "${if(config.signType == 'MD5', md5(derive.plain), if(config.signType == 'SHA1', sha1(derive.plain), config.accessKeySecret))}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.host}send.json",
+        "headers": { "Accept": "application/json", "Content-Type": "application/json" },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "appid": "${config.accessKeyId}",
+            "to": "${derive.to}",
+            "content": "${derive.content}",
+            "timestamp": "${pre.serverTime.ts}",
+            "sign_type": "${config.signType}",
+            "sign_version": "${config.signVersion}",
+            "signature": "${derive.signature}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.status == 'success'",
+        "smsId": "$.send_id",
+        "message": "$.message"
+      }
+    },
+    "xsend": {
+      "description": "xsend.json 模板单发",
+      "derive": {
+        "to": "${join(ensurePrefix(phones, '+86'), '')}",
+        "signSource": {
+          "appid": "${config.accessKeyId}",
+          "to": "${derive.to}",
+          "project": "${templateId}",
+          "timestamp": "${pre.serverTime.ts}",
+          "sign_type": "${config.signType}",
+          "sign_version": "${config.signVersion}"
+        },
+        "plain": "${config.accessKeyId + config.accessKeySecret + sortedQueryString(derive.signSource, 'none') + '&' + config.accessKeyId + config.accessKeySecret}",
+        "signature": "${if(config.signType == 'MD5', md5(derive.plain), if(config.signType == 'SHA1', sha1(derive.plain), config.accessKeySecret))}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.host}xsend.json",
+        "headers": { "Accept": "application/json", "Content-Type": "application/json" },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "appid": "${config.accessKeyId}",
+            "to": "${derive.to}",
+            "project": "${templateId}",
+            "vars": "${if(size(vars) == 0, null, toJson(vars))}",
+            "timestamp": "${pre.serverTime.ts}",
+            "sign_type": "${config.signType}",
+            "sign_version": "${config.signVersion}",
+            "signature": "${derive.signature}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.status == 'success'",
+        "smsId": "$.send_id",
+        "message": "$.message"
+      }
+    },
+    "batchsend": {
+      "description": "batchsend.json 自定义内容群发（单次上限 10000）",
+      "validate": [
+        { "check": "size(phones) <= 10000", "message": "赛邮短信：单次请求最大支持 10000 个号码" }
+      ],
+      "derive": {
+        "to": "${ensurePrefix(phones, '+86')}",
+        "content": "${if(isBlank(config.signature), message, '【' + config.signature + '】' + message)}",
+        "signSource": {
+          "appid": "${config.accessKeyId}",
+          "to": "${join(derive.to, ',')}",
+          "timestamp": "${pre.serverTime.ts}",
+          "sign_type": "${config.signType}",
+          "sign_version": "${config.signVersion}"
+        },
+        "plain": "${config.accessKeyId + config.accessKeySecret + sortedQueryString(derive.signSource, 'none') + '&' + config.accessKeyId + config.accessKeySecret}",
+        "signature": "${if(config.signType == 'MD5', md5(derive.plain), if(config.signType == 'SHA1', sha1(derive.plain), config.accessKeySecret))}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.host}batchsend.json",
+        "headers": { "Accept": "application/json", "Content-Type": "application/json" },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "appid": "${config.accessKeyId}",
+            "to": "${derive.to}",
+            "content": "${derive.content}",
+            "timestamp": "${pre.serverTime.ts}",
+            "sign_type": "${config.signType}",
+            "sign_version": "${config.signVersion}",
+            "signature": "${derive.signature}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.status == 'success'",
+        "smsId": "$.send_id",
+        "message": "$.message"
+      }
+    },
+    "batchxsend": {
+      "description": "batchxsend.json 模板群发（单次上限 10000）",
+      "validate": [
+        { "check": "size(phones) <= 10000", "message": "赛邮短信：单次请求最大支持 10000 个号码" },
+        { "check": "size(vars) > 0", "message": "赛邮短信：模板变量不能为空" }
+      ],
+      "derive": {
+        "to": "${ensurePrefix(phones, '+86')}",
+        "signSource": {
+          "appid": "${config.accessKeyId}",
+          "to": "${join(derive.to, ',')}",
+          "project": "${templateId}",
+          "timestamp": "${pre.serverTime.ts}",
+          "sign_type": "${config.signType}",
+          "sign_version": "${config.signVersion}"
+        },
+        "plain": "${config.accessKeyId + config.accessKeySecret + sortedQueryString(derive.signSource, 'none') + '&' + config.accessKeyId + config.accessKeySecret}",
+        "signature": "${if(config.signType == 'MD5', md5(derive.plain), if(config.signType == 'SHA1', sha1(derive.plain), config.accessKeySecret))}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.host}batchxsend.json",
+        "headers": { "Accept": "application/json", "Content-Type": "application/json" },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "appid": "${config.accessKeyId}",
+            "to": "${derive.to}",
+            "project": "${templateId}",
+            "vars": "${toJson(vars)}",
+            "timestamp": "${pre.serverTime.ts}",
+            "sign_type": "${config.signType}",
+            "sign_version": "${config.signVersion}",
+            "signature": "${derive.signature}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.status == 'success'",
+        "smsId": "$.send_id",
+        "message": "$.message"
+      }
+    }
+  },
+  "routing": [
+    { "when": "size(phones) > 1 && size(vars) == 0", "to": "batchsend" },
+    { "when": "size(phones) > 1", "to": "batchxsend" },
+    { "when": "size(vars) == 0", "to": "send" },
+    { "to": "xsend" }
+  ]
+}

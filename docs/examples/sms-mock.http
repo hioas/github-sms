@@ -1,0 +1,795 @@
+# =====================================================================================================================
+# sms-mock.http — hioas-sms 19 个渠道的本地 Mock 联调用例（IntelliJ IDEA HTTP Client 格式）
+# =====================================================================================================================
+# 与 sms.http 的区别：
+#   * sms.http 面向真实厂商接口，需要真实凭证才能跑通；
+#   * 本文件把所有渠道 URL 指向本地 mock 服务器（src/test/java/.../mock/MockVendorServer.java），
+#     无需任何真实凭证，选择 mock 环境后即可在 IDEA 中逐条点击测试。
+# 用法：
+#   1. 启动 mock 服务器：
+#        - 打开 src/test/java/com/hioas/sms/mock/MockVendorServer.java，右键 Run main()；
+#        - 或命令行：mvn test-compile && java -cp target/classes:target/test-classes com.hioas.sms.mock.MockVendorServer
+#      默认监听 http://localhost:18080。
+#   2. IDE 右上角 HTTP Client 环境选择 mock（定义在 http-client.env.json，全部为本地地址+假凭证）。
+#   3. 点击每个请求左侧 ▶ 发送；每个请求下方都带有 > {% client.test(...) %} 断言块，
+#      成功 ✅ / 失败 ❌ 直接显示在请求旁。
+#   4. mock 服务器会校验各渠道的必填字段：缺失时返回 400 + {"mockError": ...}，对应断言变红，
+#      便于定位「请求形态」问题。未知路径返回 404。
+#   5. 所有签名/时间戳变量均由简化脚本填占位值（mock 不校验签名，只校验字段是否齐全）。
+# 请求与 src/main/resources/channels/<channel>.api.json 一一对应；断言即各渠道 response.successWhen。
+# =====================================================================================================================
+
+
+# =====================================================================================================================
+# 1. 创蓝（chuanglan）— 明文账号密码、JSON body，无签名
+#    成功判定: $.code == '0'
+# =====================================================================================================================
+
+### 创蓝 - 单发（params = 手机号,内容）
+POST {{chuanglan_base_url}}{{chuanglan_msg_url}}
+Content-Type: application/json
+
+{
+  "account": "{{chuanglan_account}}",
+  "password": "{{chuanglan_password}}",
+  "msg": "{{chuanglan_msg}}",
+  "params": "{{phone}},{{code}}"
+}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("chuanglan code == '0'", function() {
+    client.assert(response.body.code === "0", "code not '0', actual: " + JSON.stringify(response.body));
+});
+%}
+
+### 创蓝 - 群发（params = 手机号,内容;手机号,内容）
+POST {{chuanglan_base_url}}{{chuanglan_msg_url}}
+Content-Type: application/json
+
+{
+  "account": "{{chuanglan_account}}",
+  "password": "{{chuanglan_password}}",
+  "msg": "{{chuanglan_msg}}",
+  "params": "{{phone}},{{code}};{{phone2}},{{code}}"
+}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("chuanglan code == '0'", function() {
+    client.assert(response.body.code === "0", "code not '0', actual: " + JSON.stringify(response.body));
+});
+%}
+
+
+# =====================================================================================================================
+# 2. 助通（zhutong）— 签名占位（真实为 md5(md5(密码)+tKey)）
+#    成功判定: $.code <= 200
+# =====================================================================================================================
+
+### 助通 - 模板短信（v2/sendSmsTp，逐号码 records）
+< {%
+request.variables.set("zt_tkey", "1234567890");
+request.variables.set("zt_pwd", "mock-" + request.environment.get("zhutong_password"));
+%}
+
+POST {{zhutong_base_url}}v2/sendSmsTp
+Content-Type: application/json;charset=utf-8
+
+{
+  "username": "{{zhutong_username}}",
+  "tKey": "{{zt_tkey}}",
+  "password": "{{zt_pwd}}",
+  "tpId": "{{zhutong_tpl_id}}",
+  "signature": "{{zhutong_signature}}",
+  "ext": "",
+  "extend": "",
+  "records": [
+    { "mobile": "{{phone}}", "tpContent": { "code": "{{code}}" } }
+  ]
+}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("zhutong code == 200", function() {
+    client.assert(response.body.code === 200, "code not 200, actual: " + JSON.stringify(response.body));
+});
+%}
+
+### 助通 - 自定义短信（v2/sendSms，内容必须自带【签名】）
+< {%
+request.variables.set("zt_tkey2", "1234567891");
+request.variables.set("zt_pwd2", "mock-" + request.environment.get("zhutong_password"));
+%}
+
+POST {{zhutong_base_url}}v2/sendSms
+Content-Type: application/json;charset=utf-8
+
+{
+  "username": "{{zhutong_username}}",
+  "password": "{{zt_pwd2}}",
+  "tKey": "{{zt_tkey2}}",
+  "mobile": "{{phone}},{{phone2}}",
+  "content": "【{{zhutong_signature}}】您的验证码是{{code}}，5分钟内有效。"
+}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("zhutong code == 200", function() {
+    client.assert(response.body.code === 200, "code not 200, actual: " + JSON.stringify(response.body));
+});
+%}
+
+
+# =====================================================================================================================
+# 3. 阿里云（aliyun）— 签名占位（真实为 POP v1 HMAC-SHA1）；路径 "/"，无 X-TC-Action 头即命中 mock 的 aliyun 路由
+#    成功判定: $.Code == 'OK'
+# =====================================================================================================================
+
+### 阿里云 - SendSms（POP v1 签名）
+< {%
+// 占位：真实请求中 Signature 由 HMAC-SHA1(secret+"&", StringToSign) 计算
+request.variables.set("ali_sig", "mock-signature");
+request.variables.set("ali_query",
+  "Action=SendSms&Format=JSON&SignatureMethod=HMAC-SHA1&SignatureVersion=1.0&SignatureNonce=mock-nonce"
+  + "&Version=2017-05-25&Timestamp=2026-08-31T12%3A00%3A00Z&RegionId=cn-hangzhou"
+  + "&AccessKeyId=" + request.environment.get("aliyun_ak"));
+request.variables.set("ali_body",
+  "PhoneNumbers=" + request.environment.get("phone")
+  + "&SignName=" + encodeURIComponent(request.environment.get("aliyun_sign"))
+  + "&TemplateParam=" + encodeURIComponent(JSON.stringify({code: request.environment.get("code")}))
+  + "&TemplateCode=" + request.environment.get("aliyun_tpl_code"));
+%}
+
+POST http://{{aliyun_host}}/?Signature={{ali_sig}}&{{ali_query}}
+Content-Type: application/x-www-form-urlencoded
+
+{{ali_body}}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("aliyun Code == 'OK'", function() {
+    client.assert(response.body.Code === "OK", "Code not OK, actual: " + JSON.stringify(response.body));
+});
+%}
+
+
+# =====================================================================================================================
+# 4. 腾讯云（tencent）— 签名占位（真实为 TC3-HMAC-SHA256）；路径 "/"，X-TC-Action: SendSms 头命中 mock 的 tencent 路由
+#    成功判定: $.Response.SendStatusSet[0].Code == 'Ok'
+# =====================================================================================================================
+
+### 腾讯云 - SendSms（TC3 签名）
+< {%
+// 占位：真实请求中 Authorization 由 TC3-HMAC-SHA256 四步密钥派生计算
+request.variables.set("tc_body", JSON.stringify({
+  PhoneNumberSet: ["+86" + request.environment.get("phone") + ""],
+  SmsSdkAppId: "" + request.environment.get("tencent_sdk_app_id") + "",
+  SignName: "" + request.environment.get("tencent_sign") + "",
+  TemplateId: "" + request.environment.get("tencent_tpl_id") + "",
+  TemplateParamSet: ["" + request.environment.get("code") + ""]
+}));
+request.variables.set("tc_ts", "1234567890");
+request.variables.set("tc_auth",
+  "TC3-HMAC-SHA256 Credential=" + request.environment.get("tencent_ak")
+  + "/2026-08-31/sms/tc3_request, SignedHeaders=content-type;host, Signature=mock-signature");
+%}
+
+POST http://{{tencent_host}}
+Authorization: {{tc_auth}}
+Content-Type: application/json; charset=utf-8
+Host: {{tencent_host}}
+X-TC-Action: SendSms
+X-TC-Timestamp: {{tc_ts}}
+X-TC-Version: 2021-01-11
+X-TC-Region: ap-guangzhou
+
+{{tc_body}}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("tencent SendStatusSet[0].Code == 'Ok'", function() {
+    client.assert(response.body.Response.SendStatusSet[0].Code === "Ok",
+        "Code not Ok, actual: " + JSON.stringify(response.body));
+});
+%}
+
+
+# =====================================================================================================================
+# 5. 云片（yunpian）— 明文 apikey、form body，变量格式 #key#=value&
+#    成功判定: $.code == 0
+# =====================================================================================================================
+
+### 云片 - 模板单发（tpl_value = #code#=1234，已 URL 编码）
+POST {{yunpian_url}}
+Accept: application/json;charset=utf-8
+Content-Type: application/x-www-form-urlencoded
+
+apikey={{yunpian_apikey}}&mobile={{phone}}&tpl_id={{yunpian_tpl_id}}&tpl_value=%23code%23%3D{{code}}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("yunpian code == 0", function() {
+    client.assert(response.body.code === 0, "code not 0, actual: " + JSON.stringify(response.body));
+});
+%}
+
+
+# =====================================================================================================================
+# 6. 网易云信（netease）— 签名头占位（真实为 CheckSum = sha1(secret+nonce+curTime)）
+#    成功判定: $.code <= 200
+# =====================================================================================================================
+
+### 网易云信 - 模板短信（CheckSum 头 + JSON 数组字符串参数）
+< {%
+request.variables.set("ne_nonce", "mock-nonce");
+request.variables.set("ne_curtime", "1234567890");
+request.variables.set("ne_checksum", "mock-checksum");
+%}
+
+POST {{netease_tpl_url}}
+Content-Type: application/x-www-form-urlencoded
+AppKey: {{netease_appkey}}
+Nonce: {{ne_nonce}}
+CurTime: {{ne_curtime}}
+CheckSum: {{ne_checksum}}
+
+templateid={{netease_tpl_id}}&mobiles=%5B%22{{phone}}%22%5D&params=%5B%22{{code}}%22%5D&needUp=false
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("netease code == 200", function() {
+    client.assert(response.body.code === 200, "code not 200, actual: " + JSON.stringify(response.body));
+});
+%}
+
+
+# =====================================================================================================================
+# 7. 容联云（cloopen）— 签名占位（真实为 sig=UPPER(MD5(sid+token+ts)) 进 URL；Authorization=Base64(sid:ts)）
+#    成功判定: $.statusCode == '000000'
+# =====================================================================================================================
+
+### 容联云 - 模板短信
+< {%
+request.variables.set("cl_ts", "20260831120000");
+request.variables.set("cl_sig", "MOCKSIG");
+request.variables.set("cl_auth", "Basic " + btoa(request.environment.get("cloopen_sid") + ":20260831120000"));
+%}
+
+POST {{cloopen_base_url}}/Accounts/{{cloopen_sid}}/SMS/TemplateSMS?sig={{cl_sig}}
+Accept: application/json
+Content-Type: application/json;charset=utf-8
+Authorization: {{cl_auth}}
+
+{
+  "to": "{{phone}}",
+  "appId": "{{cloopen_app_id}}",
+  "templateId": "{{cloopen_tpl_id}}",
+  "datas": ["{{code}}"]
+}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("cloopen statusCode == '000000'", function() {
+    client.assert(response.body.statusCode === "000000",
+        "statusCode not 000000, actual: " + JSON.stringify(response.body));
+});
+%}
+
+
+# =====================================================================================================================
+# 8. 中国移动云MAS（mas）— 整体 JSON Base64 后作为请求体（mac 为占位；真实为 MD5 拼接）
+#    成功判定: $.rspcod == 'success' && $.success == true
+# =====================================================================================================================
+
+### 云MAS - 模板短信（tmpsubmit，body = Base64(JSON)）
+< {%
+const payload = JSON.stringify({
+  ecName: request.environment.get("mas_ec_name"),
+  apId: request.environment.get("mas_ap_id"),
+  secretKey: request.environment.get("mas_secret"),
+  templateId: request.environment.get("mas_tpl_id"),
+  mobiles: request.environment.get("phone"),
+  params: JSON.stringify([request.environment.get("code")]),
+  sign: request.environment.get("mas_sign"),
+  addSerial: request.environment.get("mas_add_serial"),
+  mac: "mock-mas-mac"
+});
+// UTF-8 → Base64：等价于 btoa(unescape(encodeURIComponent(...)))，但不依赖非标准 escape/unescape（GraalJS 未提供）
+function utf8(s){return encodeURIComponent(s).replace(/%([0-9A-F]{2})/g,function(m,p){return String.fromCharCode(parseInt(p,16))})}
+request.variables.set("mas_body", btoa(utf8(payload)));
+%}
+
+POST {{mas_url}}tmpsubmit
+Content-Type: application/json
+
+{{mas_body}}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("mas rspcod == 'success' && success == true", function() {
+    client.assert(response.body.rspcod === "success", "rspcod not success, actual: " + JSON.stringify(response.body));
+    client.assert(response.body.success === true, "success not true, actual: " + JSON.stringify(response.body));
+});
+%}
+
+### 云MAS - 自定义短信（norsubmit，body = Base64(JSON)）
+< {%
+const payload = JSON.stringify({
+  ecName: request.environment.get("mas_ec_name"),
+  apId: request.environment.get("mas_ap_id"),
+  secretKey: request.environment.get("mas_secret"),
+  mobiles: request.environment.get("phone"),
+  content: "【" + request.environment.get("mas_sign") + "】您的验证码是" + request.environment.get("code") + "，请勿泄露。",
+  sign: request.environment.get("mas_sign"),
+  addSerial: request.environment.get("mas_add_serial"),
+  mac: "mock-mas-mac"
+});
+function utf8(s){return encodeURIComponent(s).replace(/%([0-9A-F]{2})/g,function(m,p){return String.fromCharCode(parseInt(p,16))})}
+request.variables.set("mas_body2", btoa(utf8(payload)));
+%}
+
+POST {{mas_url}}norsubmit
+Content-Type: application/json
+
+{{mas_body2}}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("mas rspcod == 'success' && success == true", function() {
+    client.assert(response.body.rspcod === "success", "rspcod not success, actual: " + JSON.stringify(response.body));
+    client.assert(response.body.success === true, "success not true, actual: " + JSON.stringify(response.body));
+});
+%}
+
+
+# =====================================================================================================================
+# 9. 赛邮云（submail）— 签名占位（真实为 MD5(appid+secret+排序参数+appid+secret)）
+#    成功判定: $.status == 'success'
+# =====================================================================================================================
+
+### 赛邮 - 前置：获取服务端时间戳（引擎自动执行；mock 直接返回固定时间戳）
+GET {{submail_timestamp_url}}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("submail timestamp present", function() {
+    client.assert(response.body.timestamp != null, "no timestamp in body");
+});
+%}
+
+### 赛邮 - send.json 自定义内容单发
+< {%
+request.variables.set("sm_ts", "1700000000");
+request.variables.set("sm_sign", "mock-signature");
+%}
+
+POST {{submail_host}}send.json
+Accept: application/json
+Content-Type: application/json
+
+{
+  "appid": "{{submail_appid}}",
+  "to": "+86{{phone}}",
+  "content": "【{{submail_sign}}】您的验证码是{{code}}，请勿泄露。",
+  "timestamp": "{{sm_ts}}",
+  "sign_type": "MD5",
+  "sign_version": "",
+  "signature": "{{sm_sign}}"
+}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("submail status == 'success'", function() {
+    client.assert(response.body.status === "success", "status not success, actual: " + JSON.stringify(response.body));
+});
+%}
+
+### 赛邮 - xsend.json 模板单发
+< {%
+request.variables.set("sm_ts2", "1700000001");
+request.variables.set("sm_sign2", "mock-signature");
+%}
+
+POST {{submail_host}}xsend.json
+Accept: application/json
+Content-Type: application/json
+
+{
+  "appid": "{{submail_appid}}",
+  "to": "+86{{phone}}",
+  "project": "{{submail_project}}",
+  "vars": "{\"code\":\"{{code}}\"}",
+  "timestamp": "{{sm_ts2}}",
+  "sign_type": "MD5",
+  "sign_version": "",
+  "signature": "{{sm_sign2}}"
+}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("submail status == 'success'", function() {
+    client.assert(response.body.status === "success", "status not success, actual: " + JSON.stringify(response.body));
+});
+%}
+
+
+# =====================================================================================================================
+# 10. 联麓（lianlu）— 签名占位（真实为 UPPER(MD5(排序参数 + &key=密钥))）
+#     成功判定: $.status == '00'
+# =====================================================================================================================
+
+### 联麓 - 模板短信（Type=3，SignType=MD5）
+< {%
+request.variables.set("ll_ts", "1234567890");
+request.variables.set("ll_sign", "MOCKSIGNATURE");
+%}
+
+POST {{lianlu_url}}/template/send
+Content-Type: application/json;charset=utf-8
+Accept: application/json
+
+{
+  "MchId": "{{lianlu_mch_id}}",
+  "AppId": "{{lianlu_app_id}}",
+  "Version": "1.1.0",
+  "Type": "3",
+  "SignType": "MD5",
+  "TimeStamp": "{{ll_ts}}",
+  "TemplateId": "{{lianlu_tpl_id}}",
+  "SignName": "{{lianlu_sign}}",
+  "PhoneNumberSet": ["{{phone}}"],
+  "TemplateParamSet": ["{{code}}"],
+  "Signature": "{{ll_sign}}"
+}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("lianlu status == '00'", function() {
+    client.assert(response.body.status === "00", "status not 00, actual: " + JSON.stringify(response.body));
+});
+%}
+
+
+# =====================================================================================================================
+# 11. 梦网（montnets）— pwd 占位（真实为 MD5(UPPER(userid)+"00000000"+密码+MMddHHmmss)）；变量双重 URL 编码
+#     成功判定: $.result == '0'
+# =====================================================================================================================
+
+### 梦网 - 模板短信
+< {%
+request.variables.set("mw_ts", "0831120000");
+request.variables.set("mw_pwd", "mock-" + request.environment.get("montnets_secret"));
+request.variables.set("mw_content", encodeURIComponent("code=" + encodeURIComponent(request.environment.get("code"))));
+%}
+
+POST {{montnets_url}}{{montnets_api}}
+Content-Type: application/json;charset=utf-8
+
+{
+  "userid": "{{montnets_userid}}",
+  "pwd": "{{mw_pwd}}",
+  "timestamp": "{{mw_ts}}",
+  "mobile": "{{phone}}",
+  "content": "{{mw_content}}",
+  "tmplid": "{{montnets_tpl_id}}"
+}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("montnets result == '0'", function() {
+    client.assert(response.body.result === "0", "result not 0, actual: " + JSON.stringify(response.body));
+});
+%}
+
+
+# =====================================================================================================================
+# 12. 亿美软通（emay）— 签名占位（真实为 MD5(appId+secretKey+yyyyMMddHHmmss)）；参数全部走 URL 查询串
+#     成功判定: lower($.code) == 'success'
+# =====================================================================================================================
+
+### 亿美 - 自定义内容发送（参数在 query，无请求体）
+< {%
+request.variables.set("em_ts", "20260831120000");
+request.variables.set("em_sign", "mock-signature");
+request.variables.set("em_content", encodeURIComponent(request.environment.get("emay_message")));
+%}
+
+POST {{emay_url}}?appId={{emay_app_id}}&timestamp={{em_ts}}&sign={{em_sign}}&mobiles={{phone}}&content={{em_content}}
+Content-Type: application/x-www-form-urlencoded
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("emay code == 'success'", function() {
+    client.assert(response.body.code === "success", "code not success, actual: " + JSON.stringify(response.body));
+});
+%}
+
+
+# =====================================================================================================================
+# 13. 互亿无线（huyi）— GET 提交，明文密码模式（描述文件 enableMd5 默认 false）
+#     成功判定: $.code == '2'
+# =====================================================================================================================
+
+### 互亿 - 单发（GET，明文密码；content 已按"【您的签名】验证码：xxxx，请勿泄露。"URL 编码）
+GET {{huyi_url}}?method=Submit&Content-Type=application/x-www-form-urlencoded&format=json&account={{huyi_account}}&password={{huyi_password}}&content=%E3%80%90%E6%82%A8%E7%9A%84%E7%AD%BE%E5%90%8D%E3%80%91%E9%AA%8C%E8%AF%81%E7%A0%81%EF%BC%9A{{code}}%EF%BC%8C%E8%AF%B7%E5%8B%BF%E6%B3%84%E9%9C%B2%E3%80%82&mobile={{phone}}&templateid={{huyi_tpl_id}}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("huyi code == '2'", function() {
+    client.assert(response.body.code === "2", "code not 2, actual: " + JSON.stringify(response.body));
+});
+%}
+
+
+# =====================================================================================================================
+# 14. 螺丝帽（luosimao）— Basic Auth（user=api, pwd=key-密钥）
+#     成功判定: $.error == 0
+# =====================================================================================================================
+
+### 螺丝帽 - 发送
+< {%
+request.variables.set("ls_auth", "Basic " + btoa("api:key-" + request.environment.get("luosimao_key")));
+request.variables.set("ls_msg", encodeURIComponent("【您的签名】验证码：" + request.environment.get("code") + "，请勿泄露。"));
+%}
+
+POST {{luosimao_host}}send.json
+Content-Type: application/x-www-form-urlencoded
+Authorization: {{ls_auth}}
+
+mobile={{phone}}&message={{ls_msg}}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("luosimao error == 0", function() {
+    client.assert(response.body.error === 0, "error not 0, actual: " + JSON.stringify(response.body));
+});
+%}
+
+### 螺丝帽 - 余额查询
+< {%
+request.variables.set("ls_auth2", "Basic " + btoa("api:key-" + request.environment.get("luosimao_key")));
+%}
+
+GET {{luosimao_host}}status.json
+Authorization: {{ls_auth2}}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("luosimao error == 0", function() {
+    client.assert(response.body.error === 0, "error not 0, actual: " + JSON.stringify(response.body));
+});
+%}
+
+
+# =====================================================================================================================
+# 15. 极光（jg）— HTTP Basic Auth(appKey:masterSecret)
+#     成功判定: $.msg_id != null（单发）/ $.success_count != null（批量）
+# =====================================================================================================================
+
+### 极光 - 单条模板短信
+< {%
+request.variables.set("jg_auth", "Basic " + btoa(request.environment.get("jg_app_key") + ":" + request.environment.get("jg_master_secret")));
+%}
+
+POST {{jg_url}}messages
+Accept: application/json
+Content-Type: application/json;charset=utf-8
+Authorization: {{jg_auth}}
+
+{
+  "mobile": "{{phone}}",
+  "sign_id": "{{jg_sign_id}}",
+  "temp_id": "{{jg_tpl_id}}",
+  "temp_para": { "code": "{{code}}" }
+}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("jg msg_id != null", function() {
+    client.assert(response.body.msg_id != null, "msg_id is null, actual: " + JSON.stringify(response.body));
+});
+%}
+
+### 极光 - 批量模板短信（号码补 +86）
+< {%
+request.variables.set("jg_auth2", "Basic " + btoa(request.environment.get("jg_app_key") + ":" + request.environment.get("jg_master_secret")));
+%}
+
+POST {{jg_url}}messages/batch
+Accept: application/json
+Content-Type: application/json;charset=utf-8
+Authorization: {{jg_auth2}}
+
+{
+  "sign_id": "{{jg_sign_id}}",
+  "temp_id": "{{jg_tpl_id}}",
+  "recipients": [
+    { "mobile": "+86{{phone}}", "temp_para": { "code": "{{code}}" } },
+    { "mobile": "+86{{phone2}}", "temp_para": { "code": "{{code}}" } }
+  ]
+}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("jg success_count != null", function() {
+    client.assert(response.body.success_count != null, "success_count is null, actual: " + JSON.stringify(response.body));
+});
+%}
+
+
+# =====================================================================================================================
+# 16. 联通一信通（yixintong）— GBK 表单、20 位流水号；响应为文本（含 result=0& 即成功）
+#     注意：引擎按 GBK 编码表单（body.charset=gbk）；HTTP Client 以 UTF-8 发送，精确编码以引擎为准。
+# =====================================================================================================================
+
+### 一信通 - 发送（20 位流水号由脚本生成）
+< {%
+request.variables.set("yxt_serial", Date.now().toString() + ("0000000" + Math.floor(Math.random() * 1e7)).slice(-7));
+request.variables.set("yxt_msg", encodeURIComponent("【您的签名】验证码：" + request.environment.get("code") + "，请勿泄露。"));
+%}
+
+POST {{yixintong_url}}
+Content-Type: application/x-www-form-urlencoded; charset=gbk
+
+SpCode={{yixintong_sp_code}}&LoginName={{yixintong_login}}&Password={{yixintong_password}}&MessageContent={{yxt_msg}}&UserNumber={{phone}}&templateId={{yixintong_tpl_id}}&SerialNumber={{yxt_serial}}&ScheduleTime=&f=1&signCode={{yixintong_sign_code}}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("yixintong result=0& in body", function() {
+    client.assert(response.body.includes("result=0&"), "no 'result=0&' in body, actual: " + JSON.stringify(response.body));
+});
+%}
+
+
+# =====================================================================================================================
+# 17. 布丁云V2（budingyun）— 明文 key、form body，仅自定义短信；群发为逐条扇出（此处单发）
+#     成功判定: $.bool == true
+# =====================================================================================================================
+
+### 布丁云 - 发送（配置了 signKey 时不提交 sign 字段；此处演示明文签名模式）
+< {%
+request.variables.set("bd_content", encodeURIComponent(request.environment.get("budingyun_message")));
+%}
+
+POST {{budingyun_url}}/Api/Sent
+Accept: application/json;charset=utf-8
+Content-Type: application/x-www-form-urlencoded
+
+key={{budingyun_key}}&to={{phone}}&content={{bd_content}}&sign={{budingyun_sign}}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("budingyun bool == true", function() {
+    client.assert(response.body.bool === true, "bool not true, actual: " + JSON.stringify(response.body));
+});
+%}
+
+
+# =====================================================================================================================
+# 18. 旦米（danmi）— sig 占位（真实为 MD5(accountSid + authToken + 毫秒时间戳)）
+#     成功判定: $.respCode == '00000'
+# =====================================================================================================================
+
+### 旦米 - 短信发送
+< {%
+request.variables.set("dm_ts", "1234567890");
+request.variables.set("dm_sig", "mock-signature");
+request.variables.set("dm_content", encodeURIComponent("【您的签名】验证码：" + request.environment.get("code") + "，请勿泄露。"));
+%}
+
+POST {{danmi_host}}distributor/sendSMS
+Content-Type: application/json
+
+{
+  "respDataType": "JSON",
+  "accountSid": "{{danmi_sid}}",
+  "templateid": "{{danmi_tpl_id}}",
+  "smsContent": "{{dm_content}}",
+  "to": ["+86{{phone}}"],
+  "timestamp": "{{dm_ts}}",
+  "sig": "{{dm_sig}}"
+}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("danmi respCode == '00000'", function() {
+    client.assert(response.body.respCode === "00000", "respCode not 00000, actual: " + JSON.stringify(response.body));
+});
+%}
+
+
+# =====================================================================================================================
+# 19. 鼎众（dingzhong）— 明文凭证 form 提交；普通/模板双 action
+#     成功判定: $.resCode == '0'
+# =====================================================================================================================
+
+### 鼎众 - 自定义短信（Sms/SendSms）
+< {%
+request.variables.set("dz_msg", encodeURIComponent("【您的签名】验证码：" + request.environment.get("code") + "，请勿泄露。"));
+%}
+
+POST {{dingzhong_url}}/Sms/SendSms
+Accept: application/json
+Content-Type: application/x-www-form-urlencoded
+
+cdkey={{dingzhong_cdkey}}&password={{dingzhong_password}}&mobile={{phone}}&msg={{dz_msg}}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("dingzhong resCode == '0'", function() {
+    client.assert(response.body.resCode === "0", "resCode not 0, actual: " + JSON.stringify(response.body));
+});
+%}
+
+### 鼎众 - 模板短信（Sms/SendTemplateSms，msgParam 为 JSON 对象字符串）
+< {%
+request.variables.set("dz_param", encodeURIComponent(JSON.stringify({code: request.environment.get("code")})));
+%}
+
+POST {{dingzhong_url}}/Sms/SendTemplateSms
+Accept: application/json
+Content-Type: application/x-www-form-urlencoded
+
+cdkey={{dingzhong_cdkey}}&password={{dingzhong_password}}&mobile={{phone}}&templateId={{dingzhong_tpl_id}}&msgParam={{dz_param}}
+
+> {%
+client.test("HTTP 200", function() {
+    client.assert(response.status === 200, "status not 200, actual: " + response.status);
+});
+client.test("dingzhong resCode == '0'", function() {
+    client.assert(response.body.resCode === "0", "resCode not 0, actual: " + JSON.stringify(response.body));
+});
+%}

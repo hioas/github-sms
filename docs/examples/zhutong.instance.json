@@ -1,0 +1,15 @@
+{
+  "schema": "hioas-instance/1.0",
+  "channel": "zhutong",
+  "configId": "zhutong-main",
+  "config": {
+    "accessKeyId": "YOUR_ACCOUNT",
+    "accessKeySecret": "YOUR_PASSWORD",
+    "signature": "【Hioas科技】",
+    "templateId": "TP20260828001",
+    "templateName": "code"
+  },
+  "behavior": {
+    "maxRetries": 2
+  }
+}

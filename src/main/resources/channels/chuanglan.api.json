@@ -1,0 +1,75 @@
+{
+  "schema": "hioas-api/1.0",
+  "channel": "chuanglan",
+  "title": "创蓝短信",
+  "description": "A 级渠道示例：明文账号密码、JSON body、单发/群发两种参数拼接",
+  "protocol": "http",
+  "config": {
+    "fields": {
+      "baseUrl": { "type": "string", "required": true, "default": "https://smssh1.253.com/msg/", "description": "接口域名" },
+      "msgUrl": { "type": "string", "required": true, "default": "msg/variable/json", "description": "变量短信接口路径" },
+      "accessKeyId": { "type": "string", "required": true, "label": "账号(account)" },
+      "accessKeySecret": { "type": "string", "required": true, "label": "密码(password)", "sensitive": true },
+      "templateId": { "type": "string", "description": "默认模板，对应创蓝 msg 字段" },
+      "templateName": { "type": "string" }
+    }
+  },
+  "operations": {
+    "sendSingle": {
+      "description": "单发：params = 手机号,内容",
+      "derive": {
+        "msgText": "${join(values(vars), ',')}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.baseUrl}${config.msgUrl}",
+        "headers": { "Content-Type": "application/json" },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "account": "${config.accessKeyId}",
+            "password": "${config.accessKeySecret}",
+            "msg": "${templateId}",
+            "params": "${phone},${derive.msgText}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.code == '0'",
+        "smsId": "$.msgid",
+        "message": "$.errorMsg"
+      }
+    },
+    "sendMass": {
+      "description": "群发：params = 手机号,内容;手机号,内容;...",
+      "derive": {
+        "msgText": "${join(values(vars), ',')}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.baseUrl}${config.msgUrl}",
+        "headers": { "Content-Type": "application/json" },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "account": "${config.accessKeyId}",
+            "password": "${config.accessKeySecret}",
+            "msg": "${templateId}",
+            "params": "${mapJoin(phones, '${item},${derive.msgText}', ';')}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.code == '0'",
+        "smsId": "$.msgid",
+        "message": "$.errorMsg"
+      }
+    }
+  },
+  "routing": [
+    { "when": "size(phones) == 1", "to": "sendSingle" },
+    { "to": "sendMass" }
+  ]
+}

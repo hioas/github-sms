@@ -1,0 +1,44 @@
+{
+  "schema": "hioas-api/1.0",
+  "channel": "budingyun",
+  "title": "布丁云V2",
+  "description": "A 级：明文 key、form body、群发逐条扇出；仅支持自定义短信",
+  "protocol": "http",
+  "config": {
+    "fields": {
+      "requestUrl": { "type": "string", "default": "https://smsapi.idcbdy.com", "description": "不含路径" },
+      "accessKeyId": { "type": "string", "required": true, "label": "接口key" },
+      "signKey": { "type": "string", "label": "签名密钥（配置后不提交 sign 字段）" },
+      "signature": { "type": "string", "label": "短信签名" }
+    }
+  },
+  "operations": {
+    "send": {
+      "validate": [
+        { "check": "!isBlank(config.signKey) || !isBlank(config.signature)", "message": "签名秘钥不能为空" }
+      ],
+      "request": {
+        "method": "POST",
+        "url": "${config.requestUrl}/Api/Sent",
+        "headers": {
+          "Accept": "application/json;charset=utf-8",
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        "body": {
+          "contentType": "form",
+          "template": {
+            "key": "${config.accessKeyId}",
+            "to": "${phone}",
+            "content": "${message}",
+            "sign": "${if(isBlank(config.signKey), config.signature, null)}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.bool == true"
+      },
+      "mass": { "strategy": "fanout" }
+    }
+  }
+}

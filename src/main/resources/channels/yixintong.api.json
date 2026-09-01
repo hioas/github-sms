@@ -1,0 +1,46 @@
+{
+  "schema": "hioas-api/1.0",
+  "channel": "yixintong",
+  "title": "联通一信通",
+  "description": "A 级：GBK 表单、20 位流水号；响应为文本（contains result=0&）",
+  "protocol": "http",
+  "config": {
+    "fields": {
+      "requestUrl": { "type": "string", "default": "https://api.ums86.com:9600/sms/Api/Send.do" },
+      "spCode": { "type": "string", "label": "接入号" },
+      "accessKeyId": { "type": "string", "required": true, "label": "LoginName" },
+      "accessKeySecret": { "type": "string", "required": true, "label": "Password", "sensitive": true },
+      "signCode": { "type": "string", "label": "签名编码" },
+      "f": { "type": "string", "default": "1" },
+      "templateId": { "type": "string" }
+    }
+  },
+  "operations": {
+    "send": {
+      "request": {
+        "method": "POST",
+        "url": "${config.requestUrl}",
+        "body": {
+          "contentType": "form",
+          "charset": "gbk",
+          "template": {
+            "SpCode": "${config.spCode}",
+            "LoginName": "${config.accessKeyId}",
+            "Password": "${config.accessKeySecret}",
+            "MessageContent": "${message}",
+            "UserNumber": "${join(phones, ',')}",
+            "templateId": "${templateId}",
+            "SerialNumber": "${random(20)}",
+            "ScheduleTime": "",
+            "f": "${config.f}",
+            "signCode": "${config.signCode}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "text",
+        "successWhen": "contains(resp.text, 'result=0&')"
+      }
+    }
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "schema": "hioas-api/1.0",
+  "channel": "emay",
+  "title": "亿美软通",
+  "description": "B 级：MD5(appId+secretKey+时间戳) 签名，参数走 URL 查询串（厂商接口形态）",
+  "protocol": "http",
+  "config": {
+    "fields": {
+      "requestUrl": { "type": "string", "required": true },
+      "accessKeyId": { "type": "string", "required": true, "label": "appId" },
+      "accessKeySecret": { "type": "string", "required": true, "label": "secretKey", "sensitive": true },
+      "timeZone": { "type": "string", "default": "Asia/Shanghai", "description": "签名时间戳时区" },
+      "templateId": { "type": "string" },
+      "templateName": { "type": "string" }
+    }
+  },
+  "operations": {
+    "sendContent": {
+      "description": "自定义内容发送",
+      "validate": [
+        { "check": "size(phones) <= 500", "message": "单次发送超过最大发送上限，建议每次群发短信人数低于500" }
+      ],
+      "derive": {
+        "timestamp": "${dateOf(timestampSec(), 'yyyyMMddHHmmss', config.timeZone)}",
+        "sign": "${md5(config.accessKeyId + config.accessKeySecret + derive.timestamp)}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.requestUrl}",
+        "headers": { "Content-Type": "application/x-www-form-urlencoded" },
+        "query": {
+          "appId": "${config.accessKeyId}",
+          "timestamp": "${derive.timestamp}",
+          "sign": "${derive.sign}",
+          "mobiles": "${join(phones, ',')}",
+          "content": "${urlEncode(message)}"
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "lower($.code) == 'success'",
+        "smsId": "$.msgid",
+        "message": "$.error"
+      }
+    },
+    "sendTemplate": {
+      "description": "模板变量发送（变量值以 JSON 数组字符串提交）",
+      "validate": [
+        { "check": "size(phones) <= 500", "message": "单次发送超过最大发送上限，建议每次群发短信人数低于500" }
+      ],
+      "derive": {
+        "timestamp": "${dateOf(timestampSec(), 'yyyyMMddHHmmss', config.timeZone)}",
+        "sign": "${md5(config.accessKeyId + config.accessKeySecret + derive.timestamp)}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.requestUrl}",
+        "headers": { "Content-Type": "application/x-www-form-urlencoded" },
+        "query": {
+          "appId": "${config.accessKeyId}",
+          "timestamp": "${derive.timestamp}",
+          "sign": "${derive.sign}",
+          "mobiles": "${join(phones, ',')}",
+          "content": "${urlEncode(toJson(values(vars)))}"
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "lower($.code) == 'success'",
+        "smsId": "$.msgid",
+        "message": "$.error"
+      }
+    }
+  },
+  "routing": [
+    { "when": "!isBlank(message)", "to": "sendContent" },
+    { "to": "sendTemplate" }
+  ]
+}

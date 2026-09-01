@@ -1,0 +1,47 @@
+{
+  "schema": "hioas-api/1.0",
+  "channel": "montnets",
+  "title": "梦网云通讯",
+  "description": "B 级：pwd = MD5(upper(userid)+00000000+secret+MMddHHmmss)，变量双重 URL 编码",
+  "protocol": "http",
+  "config": {
+    "fields": {
+      "url": { "type": "string", "required": true, "label": "接口域名" },
+      "api": { "type": "string", "required": true, "label": "接口路径" },
+      "accessKeyId": { "type": "string", "required": true, "label": "userid" },
+      "accessKeySecret": { "type": "string", "required": true, "label": "密码", "sensitive": true },
+      "templateId": { "type": "string" },
+      "templateParam": { "type": "string", "description": "单变量模板的变量名" }
+    }
+  },
+  "operations": {
+    "send": {
+      "derive": {
+        "ts": "${dateOf(timestampSec(), 'MMddHHmmss', 'Asia/Shanghai')}",
+        "pwd": "${md5(upper(config.accessKeyId) + '00000000' + config.accessKeySecret + derive.ts)}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.url}${config.api}",
+        "headers": { "Content-Type": "application/json;charset=utf-8" },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "userid": "${config.accessKeyId}",
+            "pwd": "${derive.pwd}",
+            "timestamp": "${derive.ts}",
+            "mobile": "${if(size(phones) == 1, phone, join(ensurePrefix(phones, '+86'), ','))}",
+            "content": "${urlEncode(kvJoin(vars, '${key}=${urlEncode(value)}', '&'))}",
+            "tmplid": "${templateId}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.result == '0'",
+        "smsId": "$.msgid",
+        "message": "urlDecode($.desc)"
+      }
+    }
+  }
+}

@@ -1,0 +1,151 @@
+{
+  "schema": "hioas-api/1.0",
+  "channel": "jg",
+  "title": "极光短信",
+  "description": "B 级：HTTP Basic Auth；单发/批量/语音/校验多操作；成功判定为响应键存在",
+  "protocol": "http",
+  "config": {
+    "fields": {
+      "requestUrl": { "type": "string", "default": "https://api.sms.jpush.cn/v1/", "patternEndsWith": "/" },
+      "accessKeyId": { "type": "string", "required": true, "label": "appKey" },
+      "accessKeySecret": { "type": "string", "required": true, "label": "masterSecret", "sensitive": true },
+      "signId": { "type": "string", "label": "签名ID，空则用应用默认签名" },
+      "tag": { "type": "string", "label": "批量发送标签" },
+      "voice": { "type": "string", "label": "语音播报语言 0中/1英/2混合" },
+      "ttl": { "type": "number", "default": 60, "label": "验证码有效期(秒)" },
+      "templateId": { "type": "string" },
+      "templateName": { "type": "string" }
+    }
+  },
+  "operations": {
+    "send": {
+      "description": "单条模板短信",
+      "derive": {
+        "auth": "${'Basic ' + base64(config.accessKeyId + ':' + config.accessKeySecret)}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.requestUrl}messages",
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/json;charset=utf-8",
+          "Authorization": "${derive.auth}"
+        },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "mobile": "${phone}",
+            "sign_id": "${config.signId}",
+            "temp_id": "${templateId}",
+            "temp_para": "${vars}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.msg_id != null",
+        "smsId": "$.msg_id"
+      }
+    },
+    "batch": {
+      "description": "批量模板短信",
+      "validate": [
+        { "check": "!isBlank(templateId)", "message": "templateId is required" },
+        { "check": "size(vars) > 0", "message": "temp_para is required" }
+      ],
+      "derive": {
+        "auth": "${'Basic ' + base64(config.accessKeyId + ':' + config.accessKeySecret)}",
+        "phones86": "${ensurePrefix(phones, '+86')}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.requestUrl}messages/batch",
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/json;charset=utf-8",
+          "Authorization": "${derive.auth}"
+        },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "sign_id": "${config.signId}",
+            "tag": "${config.tag}",
+            "temp_id": "${templateId}",
+            "recipients": {
+              "@each": "${derive.phones86}",
+              "@as": { "mobile": "${item}", "temp_para": "${vars}" }
+            }
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.success_count != null"
+      }
+    },
+    "voiceCode": {
+      "description": "语音验证码（execute 注入 called，code 可选）",
+      "inputs": {
+        "called": { "type": "string", "required": true },
+        "code": { "type": "string", "description": "4-8位数字，可空由平台生成" }
+      },
+      "derive": {
+        "auth": "${'Basic ' + base64(config.accessKeyId + ':' + config.accessKeySecret)}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.requestUrl}voice_codes",
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/json;charset=utf-8",
+          "Authorization": "${derive.auth}"
+        },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "mobile": "${called}",
+            "code": "${code}",
+            "voice_lang": "${config.voice}",
+            "ttl": "${config.ttl}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.msg_id != null",
+        "smsId": "$.msg_id"
+      }
+    },
+    "verify": {
+      "description": "校验验证码（execute 注入 msgId/code）",
+      "inputs": {
+        "msgId": { "type": "string", "required": true, "description": "发送接口返回的 msg_id" },
+        "code": { "type": "string", "required": true }
+      },
+      "derive": {
+        "auth": "${'Basic ' + base64(config.accessKeyId + ':' + config.accessKeySecret)}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.requestUrl}codes/${msgId}/valid",
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/json;charset=utf-8",
+          "Authorization": "${derive.auth}"
+        },
+        "body": {
+          "contentType": "json",
+          "template": { "code": "${code}" }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.is_valid != null"
+      }
+    }
+  },
+  "routing": [
+    { "when": "size(phones) == 1", "to": "send" },
+    { "to": "batch" }
+  ]
+}

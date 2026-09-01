@@ -1,0 +1,76 @@
+{
+  "schema": "hioas-api/1.0",
+  "channel": "dingzhong",
+  "title": "鼎众短信",
+  "description": "A 级：明文凭证 form 提交；普通/模板双 action 路由；群发号码补 +86",
+  "protocol": "http",
+  "config": {
+    "fields": {
+      "requestUrl": { "type": "string", "default": "http://demoapi.321sms.com:8201" },
+      "baseAction": { "type": "string", "default": "Sms/SendSms" },
+      "templateAction": { "type": "string", "default": "Sms/SendTemplateSms" },
+      "accessKeyId": { "type": "string", "required": true, "label": "cdkey" },
+      "accessKeySecret": { "type": "string", "required": true, "label": "password", "sensitive": true },
+      "templateId": { "type": "string" }
+    }
+  },
+  "operations": {
+    "sendCustom": {
+      "description": "自定义短信（无模板）",
+      "request": {
+        "method": "POST",
+        "url": "${config.requestUrl}/${config.baseAction}",
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        "body": {
+          "contentType": "form",
+          "template": {
+            "cdkey": "${config.accessKeyId}",
+            "password": "${config.accessKeySecret}",
+            "mobile": "${if(size(phones) == 1, phone, join(ensurePrefix(phones, '+86'), ','))}",
+            "msg": "${message}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.resCode == '0'",
+        "smsId": "$.msgId",
+        "message": "$.resMsg"
+      }
+    },
+    "sendTemplate": {
+      "description": "模板短信",
+      "request": {
+        "method": "POST",
+        "url": "${config.requestUrl}/${config.templateAction}",
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        "body": {
+          "contentType": "form",
+          "template": {
+            "cdkey": "${config.accessKeyId}",
+            "password": "${config.accessKeySecret}",
+            "mobile": "${if(size(phones) == 1, phone, join(ensurePrefix(phones, '+86'), ','))}",
+            "templateId": "${templateId}",
+            "msgParam": "${toJson(vars)}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.resCode == '0'",
+        "smsId": "$.msgId",
+        "message": "$.resMsg"
+      }
+    }
+  },
+  "routing": [
+    { "when": "isBlank(templateId)", "to": "sendCustom" },
+    { "to": "sendTemplate" }
+  ]
+}

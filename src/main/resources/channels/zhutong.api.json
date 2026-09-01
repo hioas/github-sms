@@ -1,0 +1,99 @@
+{
+  "schema": "hioas-api/1.0",
+  "channel": "zhutong",
+  "title": "助通短信",
+  "description": "B 级渠道示例：双重 MD5 派生签名、共享时间戳、@each 数组展开、双操作路由、发送前校验",
+  "protocol": "http",
+  "config": {
+    "fields": {
+      "requestUrl": { "type": "string", "required": true, "default": "https://api.mix2.zthysms.com/", "patternEndsWith": "/", "description": "接口地址，必须以 / 结尾" },
+      "accessKeyId": { "type": "string", "required": true, "label": "账号(username)" },
+      "accessKeySecret": { "type": "string", "required": true, "label": "密码(password)", "sensitive": true },
+      "signature": { "type": "string", "label": "短信签名，不含【】时引擎外自行包裹或由调用方保证" },
+      "templateId": { "type": "string", "description": "默认模板ID" },
+      "templateName": { "type": "string", "description": "单变量模板的变量名" }
+    }
+  },
+  "operations": {
+    "sendCustom": {
+      "description": "自定义短信（无需模板）：内容必须自带【签名】",
+      "validate": [
+        { "check": "size(phones) > 0", "message": "助通短信：手机号不能为空！" },
+        { "check": "size(phones) < 2000", "message": "助通短信：手机号码最多支持2000个！" },
+        { "check": "!isBlank(message)", "message": "助通短信：发送内容不能为空！" },
+        { "check": "size(message) < 1000", "message": "助通短信：发送内容不能超过1000个字符！" },
+        { "check": "contains(message, '【')", "message": "助通短信：自定义短信发送内容必须包含签名信息，如：【助通科技】您的验证码是8888！" }
+      ],
+      "derive": {
+        "tKey": "${timestampSec()}",
+        "password": "${md5(md5(config.accessKeySecret) + derive.tKey)}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.requestUrl}v2/sendSms",
+        "headers": { "Content-Type": "application/json;charset=utf-8" },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "username": "${config.accessKeyId}",
+            "password": "${derive.password}",
+            "tKey": "${str(derive.tKey)}",
+            "mobile": "${join(phones, ',')}",
+            "content": "${message}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.code <= 200",
+        "message": "$.msg"
+      }
+    },
+    "sendTemplate": {
+      "description": "模板短信：逐号码展开 records，模板变量随每条记录下发",
+      "validate": [
+        { "check": "!isBlank(config.signature)", "message": "助通短信：模板短信中已报备的签名signature不能为空！" },
+        { "check": "!isBlank(templateId)", "message": "助通短信：模板短信模板id不能为空！" }
+      ],
+      "derive": {
+        "tKey": "${timestampSec()}",
+        "password": "${md5(md5(config.accessKeySecret) + derive.tKey)}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.requestUrl}v2/sendSmsTp",
+        "headers": { "Content-Type": "application/json;charset=utf-8" },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "username": "${config.accessKeyId}",
+            "tKey": "${derive.tKey}",
+            "password": "${derive.password}",
+            "tpId": "${templateId}",
+            "signature": "${config.signature}",
+            "ext": "",
+            "extend": "",
+            "records": {
+              "@each": "${phones}",
+              "@as": { "mobile": "${item}", "tpContent": "${vars}" }
+            }
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.code <= 200",
+        "message": "$.msg"
+      }
+    }
+  },
+  "routing": [
+    { "when": "isBlank(config.signature) || isBlank(templateId)", "to": "sendCustom" },
+    { "to": "sendTemplate" }
+  ],
+  "behavior": {
+    "maxRetries": 2,
+    "retryIntervalMs": 1500,
+    "timeoutMs": 8000
+  }
+}

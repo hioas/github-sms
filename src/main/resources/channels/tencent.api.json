@@ -1,0 +1,70 @@
+{
+  "schema": "hioas-api/1.0",
+  "channel": "tencent",
+  "title": "腾讯云短信",
+  "description": "C 级渠道示例：TC3-HMAC-SHA256 四步密钥派生；${request.body} 参与 payload 哈希；回执在数组下标路径",
+  "protocol": "http",
+  "config": {
+    "fields": {
+      "requestUrl": { "type": "string", "required": true, "default": "sms.tencentcloudapi.com", "description": "Host，不含协议头" },
+      "accessKeyId": { "type": "string", "required": true, "label": "SecretId" },
+      "accessKeySecret": { "type": "string", "required": true, "label": "SecretKey", "sensitive": true },
+      "sdkAppId": { "type": "string", "required": true, "label": "短信应用ID" },
+      "signature": { "type": "string", "label": "短信签名" },
+      "templateId": { "type": "string" },
+      "templateName": { "type": "string" },
+      "action": { "type": "string", "default": "SendSms" },
+      "version": { "type": "string", "default": "2021-01-11" },
+      "territory": { "type": "string", "default": "ap-guangzhou", "label": "地域" },
+      "service": { "type": "string", "default": "sms" }
+    }
+  },
+  "operations": {
+    "sendSms": {
+      "description": "号码默认补 +86 前缀；国际号码由调用方传入带国家码的完整号码",
+      "derive": {
+        "timestamp": "${timestampSec()}",
+        "date": "${dateOf(derive.timestamp, 'yyyy-MM-dd', 'UTC')}",
+        "payloadHash": "${sha256(request.body)}",
+        "canonicalHeaders": "content-type:application/json; charset=utf-8\nhost:${config.requestUrl}\n",
+        "canonicalRequest": "POST\n/\n\n${derive.canonicalHeaders}\ncontent-type;host\n${derive.payloadHash}",
+        "credentialScope": "${derive.date}/${config.service}/tc3_request",
+        "stringToSign": "TC3-HMAC-SHA256\n${str(derive.timestamp)}\n${derive.credentialScope}\n${sha256(derive.canonicalRequest)}",
+        "secretDate": "${hmacSha256('TC3' + config.accessKeySecret, derive.date)}",
+        "secretService": "${hmacSha256(derive.secretDate, config.service)}",
+        "secretSigning": "${hmacSha256(derive.secretService, 'tc3_request')}",
+        "signature": "${hex(hmacSha256(derive.secretSigning, derive.stringToSign))}",
+        "authorization": "TC3-HMAC-SHA256 Credential=${config.accessKeyId}/${derive.credentialScope}, SignedHeaders=content-type;host, Signature=${derive.signature}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "https://${config.requestUrl}",
+        "headers": {
+          "Authorization": "${derive.authorization}",
+          "Content-Type": "application/json; charset=utf-8",
+          "Host": "${config.requestUrl}",
+          "X-TC-Action": "${config.action}",
+          "X-TC-Timestamp": "${str(derive.timestamp)}",
+          "X-TC-Version": "${config.version}",
+          "X-TC-Region": "${config.territory}"
+        },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "PhoneNumberSet": "${prefix(phones, '+86')}",
+            "SmsSdkAppId": "${config.sdkAppId}",
+            "SignName": "${config.signature}",
+            "TemplateId": "${templateId}",
+            "TemplateParamSet": "${values(vars)}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.Response.Error == null && $.Response.SendStatusSet[0].Code == 'Ok'",
+        "smsId": "$.Response.SendStatusSet[0].SerialNo",
+        "message": "$.Response.Error.Message"
+      }
+    }
+  }
+}

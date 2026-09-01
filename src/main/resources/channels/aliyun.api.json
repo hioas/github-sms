@@ -1,0 +1,62 @@
+{
+  "schema": "hioas-api/1.0",
+  "channel": "aliyun",
+  "title": "阿里云短信",
+  "description": "C 级渠道示例：POP v1 签名（全参数排序 + RFC3986 编码 + HMAC-SHA1），签名与公共参数进 URL，业务参数进 form body",
+  "protocol": "http",
+  "config": {
+    "fields": {
+      "requestUrl": { "type": "string", "required": true, "default": "dysmsapi.aliyuncs.com", "description": "不含协议头" },
+      "accessKeyId": { "type": "string", "required": true },
+      "accessKeySecret": { "type": "string", "required": true, "sensitive": true },
+      "signature": { "type": "string", "label": "短信签名(SignName)" },
+      "templateId": { "type": "string" },
+      "templateName": { "type": "string" },
+      "action": { "type": "string", "default": "SendSms" },
+      "version": { "type": "string", "default": "2017-05-25" },
+      "regionId": { "type": "string", "default": "cn-hangzhou" }
+    }
+  },
+  "operations": {
+    "sendSms": {
+      "derive": {
+        "commonParams": {
+          "SignatureMethod": "HMAC-SHA1",
+          "SignatureNonce": "${uuid()}",
+          "AccessKeyId": "${config.accessKeyId}",
+          "SignatureVersion": "1.0",
+          "Timestamp": "${utcDate(\"yyyy-MM-dd'T'HH:mm:ss'Z'\")}",
+          "Format": "JSON",
+          "Action": "${config.action}",
+          "Version": "${config.version}",
+          "RegionId": "${config.regionId}"
+        },
+        "bizParams": {
+          "PhoneNumbers": "${join(phones, ',')}",
+          "SignName": "${config.signature}",
+          "TemplateParam": "${toJson(vars)}",
+          "TemplateCode": "${templateId}"
+        },
+        "canonical": "${sortedQueryString(merge(derive.commonParams, derive.bizParams), 'rfc3986')}",
+        "stringToSign": "${'POST&%2F&' + urlEncodeRfc3986(derive.canonical)}",
+        "signature": "${base64(hmacSha1(config.accessKeySecret + '&', derive.stringToSign))}",
+        "urlQuery": "${sortedQueryString(derive.commonParams, 'rfc3986')}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "https://${config.requestUrl}/?Signature=${urlEncodeRfc3986(derive.signature)}&${derive.urlQuery}",
+        "headers": { "Content-Type": "application/x-www-form-urlencoded" },
+        "body": {
+          "contentType": "form",
+          "template": "${derive.bizParams}"
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.Code == 'OK'",
+        "smsId": "$.BizId",
+        "message": "$.Message"
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+# Maven / Java
+target/
+*.class
+*.jar
+*.war
+hs_err_pid*
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# HTTP Client 私有凭证（真实账号密钥，禁止提交）
+docs/examples/http-client.private.env.json

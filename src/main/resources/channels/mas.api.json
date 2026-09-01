@@ -1,0 +1,98 @@
+{
+  "schema": "hioas-api/1.0",
+  "channel": "mas",
+  "title": "中国移动云MAS",
+  "description": "B 级：字段按序拼接取 MD5(mac)，整体 JSON 做 Base64 后作为请求体",
+  "protocol": "http",
+  "config": {
+    "fields": {
+      "requestUrl": { "type": "string", "default": "http://112.35.1.155:1992/sms/", "patternEndsWith": "/" },
+      "ecName": { "type": "string", "required": true, "label": "集团客户编号" },
+      "sdkAppId": { "type": "string", "required": true, "label": "apId 应用编号" },
+      "accessKeySecret": { "type": "string", "required": true, "label": "secretKey", "sensitive": true },
+      "signature": { "type": "string", "label": "签名(sign)" },
+      "addSerial": { "type": "string", "label": "扩展码" },
+      "templateId": { "type": "string" }
+    }
+  },
+  "operations": {
+    "sendCustom": {
+      "description": "自定义短信（norsubmit）",
+      "derive": {
+        "mobiles": "${join(phones, ',')}",
+        "sign": "${if(isBlank(config.signature), '', config.signature)}",
+        "addSerial": "${if(isBlank(config.addSerial), '', config.addSerial)}",
+        "concat": "${config.ecName + config.sdkAppId + config.accessKeySecret + derive.mobiles + message + derive.sign + derive.addSerial}",
+        "mac": "${md5(derive.concat)}",
+        "payload": {
+          "ecName": "${config.ecName}",
+          "apId": "${config.sdkAppId}",
+          "secretKey": "${config.accessKeySecret}",
+          "mobiles": "${derive.mobiles}",
+          "content": "${message}",
+          "sign": "${derive.sign}",
+          "addSerial": "${derive.addSerial}",
+          "mac": "${derive.mac}"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.requestUrl}norsubmit",
+        "headers": { "Content-Type": "application/json" },
+        "body": {
+          "contentType": "raw",
+          "encoding": "base64",
+          "template": "${toJson(derive.payload)}"
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.rspcod == 'success' && $.success == true",
+        "smsId": "$.msgGroup",
+        "message": "$.rspcod"
+      }
+    },
+    "sendTemplate": {
+      "description": "模板短信（tmpsubmit），变量按序以 JSON 数组提交",
+      "derive": {
+        "mobiles": "${join(phones, ',')}",
+        "params": "${if(size(vars) == 0, '[\"\"]', toJson(values(vars)))}",
+        "sign": "${if(isBlank(config.signature), '', config.signature)}",
+        "addSerial": "${if(isBlank(config.addSerial), '', config.addSerial)}",
+        "concat": "${config.ecName + config.sdkAppId + config.accessKeySecret + templateId + derive.mobiles + derive.params + derive.sign + derive.addSerial}",
+        "mac": "${md5(derive.concat)}",
+        "payload": {
+          "ecName": "${config.ecName}",
+          "apId": "${config.sdkAppId}",
+          "secretKey": "${config.accessKeySecret}",
+          "templateId": "${templateId}",
+          "mobiles": "${derive.mobiles}",
+          "params": "${derive.params}",
+          "sign": "${derive.sign}",
+          "addSerial": "${derive.addSerial}",
+          "mac": "${derive.mac}"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.requestUrl}tmpsubmit",
+        "headers": { "Content-Type": "application/json" },
+        "body": {
+          "contentType": "raw",
+          "encoding": "base64",
+          "template": "${toJson(derive.payload)}"
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.rspcod == 'success' && $.success == true",
+        "smsId": "$.msgGroup",
+        "message": "$.rspcod"
+      }
+    }
+  },
+  "routing": [
+    { "when": "isBlank(templateId)", "to": "sendCustom" },
+    { "to": "sendTemplate" }
+  ]
+}

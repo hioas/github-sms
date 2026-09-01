@@ -1,0 +1,124 @@
+{
+  "schema": "hioas-api/1.0",
+  "channel": "lianlu",
+  "title": "联麓短信",
+  "description": "B 级：参数按字母排序拼接 + &key=密钥，MD5 或 HMAC-SHA256（大写）",
+  "protocol": "http",
+  "config": {
+    "fields": {
+      "requestUrl": { "type": "string", "default": "https://apis.shlianlu.com/sms/trade" },
+      "mchId": { "type": "string", "required": true, "label": "企业ID" },
+      "appId": { "type": "string", "required": true },
+      "appKey": { "type": "string", "required": true, "sensitive": true, "label": "API密钥" },
+      "version": { "type": "string", "default": "1.1.0" },
+      "signType": { "type": "string", "default": "MD5", "description": "MD5 | HMACSHA256" },
+      "signature": { "type": "string", "label": "短信签名" },
+      "templateId": { "type": "string" }
+    }
+  },
+  "operations": {
+    "sendTemplate": {
+      "description": "模板短信（Type=3）",
+      "validate": [
+        { "check": "size(phones) <= 10000", "message": "联麓短信:手机号数量最多为10000！" }
+      ],
+      "derive": {
+        "ts": "${timestampMs()}",
+        "signParams": {
+          "MchId": "${config.mchId}",
+          "AppId": "${config.appId}",
+          "SignType": "${config.signType}",
+          "TimeStamp": "${derive.ts}",
+          "Type": "3",
+          "Version": "${config.version}",
+          "TemplateId": "${templateId}",
+          "SignName": "${if(isBlank(config.signature), null, config.signature)}"
+        },
+        "plain": "${sortedQueryString(derive.signParams, 'none')}&key=${config.appKey}",
+        "signature": "${if(config.signType == 'HMACSHA256', upper(hex(hmacSha256(config.appKey, derive.plain))), upper(md5(derive.plain)))}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.requestUrl}/template/send",
+        "headers": {
+          "Content-Type": "application/json;charset=utf-8",
+          "Accept": "application/json"
+        },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "MchId": "${config.mchId}",
+            "AppId": "${config.appId}",
+            "Version": "${config.version}",
+            "Type": "3",
+            "SignType": "${config.signType}",
+            "TimeStamp": "${derive.ts}",
+            "TemplateId": "${templateId}",
+            "SignName": "${config.signature}",
+            "PhoneNumberSet": "${phones}",
+            "TemplateParamSet": "${values(vars)}",
+            "Signature": "${derive.signature}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.status == '00'",
+        "smsId": "$.msgId",
+        "message": "$.message"
+      }
+    },
+    "sendNormal": {
+      "description": "非模板短信（Type=1，通用入口 execute 调用）",
+      "validate": [
+        { "check": "size(phones) <= 10000", "message": "联麓短信:手机号数量最多为10000！" }
+      ],
+      "derive": {
+        "ts": "${timestampMs()}",
+        "signParams": {
+          "MchId": "${config.mchId}",
+          "AppId": "${config.appId}",
+          "SignType": "${config.signType}",
+          "TimeStamp": "${derive.ts}",
+          "Type": "1",
+          "Version": "${config.version}",
+          "SignName": "${if(isBlank(config.signature), null, config.signature)}"
+        },
+        "plain": "${sortedQueryString(derive.signParams, 'none')}&key=${config.appKey}",
+        "signature": "${if(config.signType == 'HMACSHA256', upper(hex(hmacSha256(config.appKey, derive.plain))), upper(md5(derive.plain)))}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.requestUrl}/normal/send",
+        "headers": {
+          "Content-Type": "application/json;charset=utf-8",
+          "Accept": "application/json"
+        },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "MchId": "${config.mchId}",
+            "AppId": "${config.appId}",
+            "Version": "${config.version}",
+            "Type": "1",
+            "SignType": "${config.signType}",
+            "TimeStamp": "${derive.ts}",
+            "SignName": "${config.signature}",
+            "SessionContext": "${message}",
+            "PhoneNumberSet": "${phones}",
+            "Signature": "${derive.signature}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.status == '00'",
+        "smsId": "$.msgId",
+        "message": "$.message"
+      }
+    }
+  },
+  "routing": [
+    { "to": "sendTemplate" }
+  ]
+}

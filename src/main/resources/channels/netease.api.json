@@ -1,0 +1,54 @@
+{
+  "schema": "hioas-api/1.0",
+  "channel": "netease",
+  "title": "网易云信",
+  "description": "B 级：CheckSum = SHA1(secret+nonce+curTime) 放请求头；号码与变量以 JSON 数组字符串提交",
+  "protocol": "http",
+  "config": {
+    "fields": {
+      "templateUrl": { "type": "string", "required": true, "label": "模板短信接口地址" },
+      "accessKeyId": { "type": "string", "required": true, "label": "AppKey" },
+      "accessKeySecret": { "type": "string", "required": true, "label": "AppSecret", "sensitive": true },
+      "needUp": { "type": "boolean", "default": false, "label": "是否上行短信" },
+      "templateId": { "type": "string" },
+      "templateName": { "type": "string" }
+    }
+  },
+  "operations": {
+    "send": {
+      "validate": [
+        { "check": "size(phones) <= 100", "message": "单次发送超过最大发送上限，建议每次群发短信人数低于100" }
+      ],
+      "derive": {
+        "nonce": "${uuid()}",
+        "curTime": "${str(timestampSec())}",
+        "checkSum": "${sha1(config.accessKeySecret + derive.nonce + derive.curTime)}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.templateUrl}",
+        "headers": {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "AppKey": "${config.accessKeyId}",
+          "Nonce": "${derive.nonce}",
+          "CurTime": "${derive.curTime}",
+          "CheckSum": "${derive.checkSum}"
+        },
+        "body": {
+          "contentType": "form",
+          "template": {
+            "templateid": "${templateId}",
+            "mobiles": "${toJson(phones)}",
+            "params": "${toJson(values(vars))}",
+            "needUp": "${str(config.needUp)}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.code <= 200",
+        "message": "$.msg"
+      }
+    }
+  }
+}

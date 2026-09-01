@@ -1,0 +1,47 @@
+{
+  "schema": "hioas-api/1.0",
+  "channel": "yunpian",
+  "title": "云片",
+  "description": "A 级：明文 apikey、form body；变量格式 #key#=value&",
+  "protocol": "http",
+  "config": {
+    "fields": {
+      "requestUrl": { "type": "string", "default": "https://sms.yunpian.com/v2/sms/tpl_single_send.json" },
+      "accessKeyId": { "type": "string", "required": true, "label": "apikey", "sensitive": true },
+      "callbackUrl": { "type": "string", "label": "状态回调地址" },
+      "templateId": { "type": "string" },
+      "templateName": { "type": "string" }
+    }
+  },
+  "operations": {
+    "send": {
+      "validate": [
+        { "check": "size(phones) <= 1000", "message": "单次发送超过最大发送上限，建议每次群发短信人数低于1000" }
+      ],
+      "request": {
+        "method": "POST",
+        "url": "${config.requestUrl}",
+        "headers": {
+          "Accept": "application/json;charset=utf-8",
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        "body": {
+          "contentType": "form",
+          "template": {
+            "apikey": "${config.accessKeyId}",
+            "mobile": "${join(phones, ',')}",
+            "tpl_id": "${templateId}",
+            "tpl_value": "${kvJoin(vars, '#${key}#=${value}', '&')}",
+            "callback_url": "${config.callbackUrl}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.code == 0",
+        "smsId": "$.sid",
+        "message": "$.msg"
+      }
+    }
+  }
+}

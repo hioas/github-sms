@@ -1,0 +1,61 @@
+{
+  "schema": "hioas-api/1.0",
+  "channel": "luosimao",
+  "title": "螺丝帽",
+  "description": "B 级：Basic Auth（user=api, pwd=key-密钥）；发送 + 余额查询",
+  "protocol": "http",
+  "config": {
+    "fields": {
+      "host": { "type": "string", "default": "https://sms-api.luosimao.com/v1/", "patternEndsWith": "/" },
+      "action": { "type": "string", "default": "send.json" },
+      "accessKeyId": { "type": "string", "required": true, "label": "API密钥" }
+    }
+  },
+  "operations": {
+    "send": {
+      "derive": {
+        "auth": "${'Basic ' + base64('api:key-' + config.accessKeyId)}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.host}${config.action}",
+        "headers": {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Authorization": "${derive.auth}"
+        },
+        "body": {
+          "contentType": "form",
+          "template": {
+            "mobile": "${join(phones, ',')}",
+            "message": "${message}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.error == 0",
+        "smsId": "$.msg_key",
+        "message": "$.msg"
+      }
+    },
+    "balance": {
+      "description": "余额查询（通用入口 execute 调用）",
+      "derive": {
+        "auth": "${'Basic ' + base64('api:key-' + config.accessKeyId)}"
+      },
+      "request": {
+        "method": "GET",
+        "url": "${config.host}status.json",
+        "headers": { "Authorization": "${derive.auth}" }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.error == 0",
+        "message": "$.msg"
+      }
+    }
+  },
+  "routing": [
+    { "to": "send" }
+  ]
+}

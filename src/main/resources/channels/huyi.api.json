@@ -1,0 +1,79 @@
+{
+  "schema": "hioas-api/1.0",
+  "channel": "huyi",
+  "title": "互亿无线",
+  "description": "B 级：GET 提交；可选 MD5(account+password+mobile+content+time) 密码摘要",
+  "protocol": "http",
+  "config": {
+    "fields": {
+      "baseUrl": { "type": "string", "default": "https://106.ihuyi.com/webservice/sms.php" },
+      "singleMsgUrl": { "type": "string", "default": "?method=Submit" },
+      "massMsgUrl": { "type": "string", "default": "?method=SubmitBatch" },
+      "enableMd5": { "type": "boolean", "default": false },
+      "accessKeyId": { "type": "string", "required": true, "label": "account" },
+      "accessKeySecret": { "type": "string", "required": true, "label": "password", "sensitive": true },
+      "templateId": { "type": "string" }
+    }
+  },
+  "operations": {
+    "sendSingle": {
+      "derive": {
+        "ts": "${timestampSec()}",
+        "mobile": "${phone}",
+        "password": "${if(config.enableMd5, md5(config.accessKeyId + config.accessKeySecret + derive.mobile + message + str(derive.ts)), config.accessKeySecret)}"
+      },
+      "request": {
+        "method": "GET",
+        "url": "${config.baseUrl}${config.singleMsgUrl}",
+        "query": {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "format": "json",
+          "account": "${config.accessKeyId}",
+          "password": "${derive.password}",
+          "time": "${if(config.enableMd5, str(derive.ts), null)}",
+          "content": "${message}",
+          "mobile": "${derive.mobile}",
+          "templateid": "${templateId}"
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.code == '2'",
+        "smsId": "$.smsid",
+        "message": "$.msg"
+      }
+    },
+    "sendMass": {
+      "description": "群发：变量内容随号码下发（手机号|内容,手机号|内容）",
+      "derive": {
+        "ts": "${timestampSec()}",
+        "mobile": "${mapJoin(phones, '${item}|${message}', ',')}",
+        "password": "${if(config.enableMd5, md5(config.accessKeyId + config.accessKeySecret + derive.mobile + message + str(derive.ts)), config.accessKeySecret)}"
+      },
+      "request": {
+        "method": "GET",
+        "url": "${config.baseUrl}${config.massMsgUrl}",
+        "query": {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "format": "json",
+          "account": "${config.accessKeyId}",
+          "password": "${derive.password}",
+          "time": "${if(config.enableMd5, str(derive.ts), null)}",
+          "content": "${message}",
+          "mobile": "${derive.mobile}",
+          "templateid": "${templateId}"
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.code == '2'",
+        "smsId": "$.smsid",
+        "message": "$.msg"
+      }
+    }
+  },
+  "routing": [
+    { "when": "size(phones) == 1", "to": "sendSingle" },
+    { "to": "sendMass" }
+  ]
+}

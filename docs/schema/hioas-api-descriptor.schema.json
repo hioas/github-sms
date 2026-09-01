@@ -1,0 +1,216 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hioas.dev/schemas/hioas-api-descriptor-1.0.schema.json",
+  "title": "HIOAS API Descriptor (hioas-api/1.0)",
+  "description": "渠道描述文件的结构与静态校验规则；表达式语义见 02-hioas-api-标准-v1.0.md",
+  "type": "object",
+  "required": ["schema", "channel", "protocol"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "hioas-api/1.0"
+    },
+    "channel": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "渠道唯一标识，小写"
+    },
+    "title": { "type": "string" },
+    "description": { "type": "string" },
+    "protocol": {
+      "enum": ["http", "java"]
+    },
+    "java": {
+      "type": "object",
+      "required": ["class"],
+      "additionalProperties": false,
+      "properties": {
+        "class": { "type": "string", "description": "HioasSmsAdapter 实现类全限定名" }
+      }
+    },
+    "config": { "$ref": "#/definitions/config" },
+    "preRequests": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/definitions/preRequest" }
+    },
+    "operations": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/definitions/operation" }
+    },
+    "routing": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["to"],
+        "additionalProperties": false,
+        "properties": {
+          "when": { "type": "string", "description": "布尔表达式；缺省表示兜底规则" },
+          "to": { "type": "string", "description": "operations 中的操作名" }
+        }
+      }
+    },
+    "behavior": { "$ref": "#/definitions/behavior" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "protocol": { "const": "java" } } },
+      "then": { "required": ["java"] }
+    },
+    {
+      "if": { "properties": { "protocol": { "const": "http" } } },
+      "then": { "required": ["operations"] }
+    }
+  ],
+  "definitions": {
+    "configField": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["string", "number", "boolean"] },
+        "required": { "type": "boolean" },
+        "sensitive": { "type": "boolean" },
+        "default": { "type": ["string", "number", "boolean"] },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "patternStartsWith": { "type": "string" },
+        "patternEndsWith": { "type": "string" }
+      }
+    },
+    "config": {
+      "type": "object",
+      "required": ["fields"],
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "$ref": "#/definitions/configField" }
+        }
+      }
+    },
+    "preRequest": {
+      "type": "object",
+      "required": ["request", "response"],
+      "additionalProperties": false,
+      "properties": {
+        "request": { "$ref": "#/definitions/request" },
+        "response": {
+          "type": "object",
+          "required": ["capture"],
+          "additionalProperties": false,
+          "properties": {
+            "capture": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": { "type": "string", "description": "$ 路径" }
+            }
+          }
+        }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "required": ["request", "response"],
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string" },
+        "inputs": {
+          "type": "object",
+          "description": "通用入口 execute() 注入的额外运行时变量声明，纳入引用白名单",
+          "additionalProperties": { "$ref": "#/definitions/configField" }
+        },
+        "validate": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["check", "message"],
+            "additionalProperties": false,
+            "properties": {
+              "check": { "type": "string" },
+              "message": { "type": "string" }
+            }
+          }
+        },
+        "derive": {
+          "type": "object",
+          "additionalProperties": {
+            "description": "派生值：标量表达式字符串或结构化模板",
+            "type": ["string", "object", "array"]
+          }
+        },
+        "request": { "$ref": "#/definitions/request" },
+        "response": { "$ref": "#/definitions/response" },
+        "mass": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "strategy": { "enum": ["join", "fanout"], "default": "join" }
+          }
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "required": ["method", "url"],
+      "additionalProperties": false,
+      "properties": {
+        "method": { "enum": ["GET", "POST"] },
+        "url": { "type": "string" },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "query": {
+          "type": "object",
+          "additionalProperties": { "type": ["string", "array"] }
+        },
+        "body": {
+          "type": "object",
+          "required": ["contentType", "template"],
+          "additionalProperties": false,
+          "properties": {
+            "contentType": { "enum": ["json", "form", "raw"] },
+            "encoding": { "enum": ["none", "base64", "urlEncode"], "default": "none" },
+            "charset": { "type": "string", "description": "序列化字符集，缺省 UTF-8（如 gbk）" },
+            "template": {
+              "description": "json/form 为 map 模板；raw 为字符串模板；允许整体为 ${derive.x} 表达式字符串"
+            }
+          }
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": ["contentType", "successWhen"],
+      "additionalProperties": false,
+      "properties": {
+        "contentType": { "enum": ["json", "text"] },
+        "successWhen": { "type": "string", "description": "布尔表达式，JSON 路径以 $ 开头" },
+        "smsId": { "type": "string", "description": "$ 路径" },
+        "message": { "type": "string", "description": "$ 路径" }
+      }
+    },
+    "behavior": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxRetries": { "type": "integer", "minimum": 0, "default": 0 },
+        "retryIntervalMs": { "type": "integer", "minimum": 0, "default": 2000 },
+        "timeoutMs": { "type": "integer", "minimum": 1 },
+        "proxy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enable": { "type": "boolean", "default": false },
+            "host": { "type": "string" },
+            "port": { "type": "integer" }
+          }
+        }
+      }
+    }
+  }
+}

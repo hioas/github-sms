@@ -1,0 +1,51 @@
+{
+  "schema": "hioas-api/1.0",
+  "channel": "cloopen",
+  "title": "容联云",
+  "description": "B 级：sig = UPPER(MD5(id+token+时间戳)) 进 URL，Authorization = Base64(id:时间戳) 进请求头",
+  "protocol": "http",
+  "config": {
+    "fields": {
+      "baseUrl": { "type": "string", "default": "https://app.cloopen.com:8883/2013-12-26" },
+      "accessKeyId": { "type": "string", "required": true, "label": "ACCOUNT SID" },
+      "accessKeySecret": { "type": "string", "required": true, "label": "AUTH TOKEN", "sensitive": true },
+      "sdkAppId": { "type": "string", "required": true, "label": "应用ID" },
+      "timeZone": { "type": "string", "default": "Asia/Shanghai", "description": "时间戳时区" },
+      "templateId": { "type": "string" },
+      "templateName": { "type": "string" }
+    }
+  },
+  "operations": {
+    "send": {
+      "derive": {
+        "ts": "${dateOf(timestampSec(), 'yyyyMMddHHmmss', config.timeZone)}",
+        "sig": "${upper(md5(config.accessKeyId + config.accessKeySecret + derive.ts))}",
+        "auth": "${base64(config.accessKeyId + ':' + derive.ts)}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.baseUrl}/Accounts/${config.accessKeyId}/SMS/TemplateSMS?sig=${derive.sig}",
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/json;charset=utf-8",
+          "Authorization": "${derive.auth}"
+        },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "to": "${join(phones, ',')}",
+            "appId": "${config.sdkAppId}",
+            "templateId": "${templateId}",
+            "datas": "${values(vars)}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.statusCode == '000000'",
+        "smsId": "$.templateSMS.smsMessageSid",
+        "message": "$.statusMsg"
+      }
+    }
+  }
+}

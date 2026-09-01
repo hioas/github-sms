@@ -1,0 +1,172 @@
+{
+  "schema": "hioas-api/1.0",
+  "channel": "danmi",
+  "title": "旦米科技",
+  "description": "B 级：MD5(accountSid+authToken+timestampMs) 签名；短信发送 + 余额/语音扩展操作",
+  "protocol": "http",
+  "config": {
+    "fields": {
+      "host": { "type": "string", "default": "https://openapi.danmi.com/", "patternEndsWith": "/" },
+      "action": { "type": "string", "default": "distributor/sendSMS", "description": "短信发送固定为 distributor/sendSMS" },
+      "accessKeyId": { "type": "string", "required": true, "label": "ACCOUNT SID" },
+      "accessKeySecret": { "type": "string", "required": true, "label": "AUTH TOKEN", "sensitive": true }
+    }
+  },
+  "operations": {
+    "sendSms": {
+      "derive": {
+        "ts": "${timestampMs()}",
+        "sig": "${md5(config.accessKeyId + config.accessKeySecret + str(derive.ts))}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.host}${config.action}",
+        "headers": { "Content-Type": "application/json" },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "respDataType": "JSON",
+            "accountSid": "${config.accessKeyId}",
+            "templateid": "${templateId}",
+            "smsContent": "${if(isBlank(message), null, urlEncode(message))}",
+            "to": "${ensurePrefix(phones, '+86')}",
+            "timestamp": "${derive.ts}",
+            "sig": "${derive.sig}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.respCode == '00000'",
+        "smsId": "$.taskId",
+        "message": "$.respDesc"
+      }
+    },
+    "queryBalance": {
+      "description": "余额查询（通用入口 execute 调用）",
+      "derive": {
+        "ts": "${timestampMs()}",
+        "sig": "${md5(config.accessKeyId + config.accessKeySecret + str(derive.ts))}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.host}distributor/user/query",
+        "headers": { "Content-Type": "application/json" },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "respDataType": "JSON",
+            "accountSid": "${config.accessKeyId}",
+            "timestamp": "${derive.ts}",
+            "sig": "${derive.sig}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.respCode == '00000'",
+        "message": "$.respDesc"
+      }
+    },
+    "voiceCode": {
+      "description": "语音验证码（execute 注入 called/verifyCode）",
+      "inputs": {
+        "called": { "type": "string", "required": true, "description": "被叫号码（含国家码）" },
+        "verifyCode": { "type": "string", "required": true, "description": "1-8位数字" }
+      },
+      "derive": {
+        "ts": "${timestampMs()}",
+        "sig": "${md5(config.accessKeyId + config.accessKeySecret + str(derive.ts))}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.host}voice/voiceCode",
+        "headers": { "Content-Type": "application/json" },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "respDataType": "JSON",
+            "accountSid": "${config.accessKeyId}",
+            "called": "${called}",
+            "verifyCode": "${verifyCode}",
+            "timestamp": "${derive.ts}",
+            "sig": "${derive.sig}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.respCode == '00000'",
+        "message": "$.respDesc"
+      }
+    },
+    "voiceNotify": {
+      "description": "语音通知文件发送（execute 注入 called/notifyFileId）",
+      "inputs": {
+        "called": { "type": "string", "required": true },
+        "notifyFileId": { "type": "string", "required": true }
+      },
+      "derive": {
+        "ts": "${timestampMs()}",
+        "sig": "${md5(config.accessKeyId + config.accessKeySecret + str(derive.ts))}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.host}voice/voiceNotify",
+        "headers": { "Content-Type": "application/json" },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "respDataType": "JSON",
+            "accountSid": "${config.accessKeyId}",
+            "called": "${called}",
+            "notifyFileId": "${notifyFileId}",
+            "timestamp": "${derive.ts}",
+            "sig": "${derive.sig}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.respCode == '00000'",
+        "message": "$.respDesc"
+      }
+    },
+    "voiceTemplate": {
+      "description": "语音模板通知（execute 注入 called/param，templateId 传模板）",
+      "inputs": {
+        "called": { "type": "string", "required": true },
+        "param": { "type": "string", "required": true, "description": "模板变量，多个以英文逗号分隔" }
+      },
+      "derive": {
+        "ts": "${timestampMs()}",
+        "sig": "${md5(config.accessKeyId + config.accessKeySecret + str(derive.ts))}"
+      },
+      "request": {
+        "method": "POST",
+        "url": "${config.host}voice/voiceTemplate",
+        "headers": { "Content-Type": "application/json" },
+        "body": {
+          "contentType": "json",
+          "template": {
+            "respDataType": "JSON",
+            "accountSid": "${config.accessKeyId}",
+            "called": "${called}",
+            "templateId": "${templateId}",
+            "param": "${param}",
+            "timestamp": "${derive.ts}",
+            "sig": "${derive.sig}"
+          }
+        }
+      },
+      "response": {
+        "contentType": "json",
+        "successWhen": "$.respCode == '00000'",
+        "message": "$.respDesc"
+      }
+    }
+  },
+  "routing": [
+    { "to": "sendSms" }
+  ]
+}
